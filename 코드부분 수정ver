@@ -1,0 +1,241 @@
+"""
+사이즈 추천 어시스턴트 - 백엔드 파이프라인 (가상 데이터 버전)
+
+흐름:  [AI가 읽어온 사이즈표]  ->  정규화/검수  ->  추천  ->  결과 출력
+       (지금은 raw_extracted_data 가짜 데이터)
+
+실행 방법:  python size_recommender.py
+"""
+import json
+import re
+from datetime import datetime
+
+# =====================================================================
+# 0. 설정값  (아래 값들은 '임시값'입니다. 팀원과 상의해서 정하세요!)
+# =====================================================================
+FIELD_NAMES = {
+    "shoulder_cm": "어깨너비",
+    "length_cm": "총장",
+    "chest_width_cm": "가슴단면",
+    "sleeve_cm": "소매길이",
+}
+
+REQUIRED_FIELDS = ["shoulder_cm", "length_cm", "chest_width_cm"]  # 없으면 추천 불가
+OPTIONAL_FIELDS = ["sleeve_cm"]                                   # 없어도 추천 가능
+SCORE_FIELDS = REQUIRED_FIELDS                                    # 점수 계산에 쓰는 부위
+
+TOLERANCE_CM = 3.0  # 허용 범위: 어느 한 부위라도 목표와 이만큼 넘게 다르면 추천 제외
+
+# 원하는 핏에 따라 '내 옷 치수'에 더해줄 여유(cm). 예: 여유로운 핏이면 내 옷보다 1cm 큰 걸 목표로
+FIT_OFFSET_CM = {"여유로운 핏": 1.0, "정사이즈": 0.0, "슬림 핏": -1.0}
+
+# 상식 범위: AI가 엉뚱한 숫자(예: 어깨 200cm)를 뽑았을 때 걸러내기 위한 값
+VALID_RANGE_CM = {
+    "shoulder_cm": (20.0, 80.0),
+    "length_cm": (30.0, 120.0),
+    "chest_width_cm": (30.0, 90.0),
+    "sleeve_cm": (5.0, 40.0),
+}
+MISSING_MARKERS = {"", "-", "미제공", "none"}  # '값 없음'을 뜻하는 표기들
+
+# =====================================================================
+# 1. 가짜 데이터
+# =====================================================================
+# 사용자가 입력한 '잘 맞았던 옷'
+user_reference_clothes = {
+    "reference_url": "https://www.musinsa.com/products/1032469",
+    "purchased_size": "M",
+    "fit_satisfaction": "만족",
+    "desired_fit": "여유로운 핏",
+    "measurements": {
+        "length_cm": 70.0,
+        "shoulder_cm": 45.0,
+        "chest_width_cm": 52.0,
+        "sleeve_cm": 23.0,
+    },
+}
+
+# AI가 상품 사이즈표에서 읽어왔다고 가정한 데이터 (일부러 지저분하게 만든 것)
+raw_extracted_data = {
+    "source_url": "https://www.musinsa.com/products/1032469",
+    "brand": "무신사 스탠다드",
+    "product_name": "릴렉스 핏 크루 넥 포켓 반팔 티셔츠",
+    "raw_sizes": {
+        "S": {"length_cm": "69cm", "shoulder_cm": "440mm", "chest_width_cm": "가슴둘레 104cm", "sleeve_cm": "24cm"},
+        "M": {"length_cm": "71cm", "shoulder_cm": "46cm", "chest_width_cm": "54cm", "sleeve_cm": "25cm"},
+        "L": {"length_cm": "73cm", "shoulder_cm": "48cm", "chest_width_cm": "-", "sleeve_cm": "26cm"},  # 누락 테스트용
+    },
+}
+# =====================================================================
+# 2. 글자 하나를 cm 숫자로 바꾸는 함수
+# =====================================================================
+def parse_measurement(field, raw_value):
+    """'440mm', '가슴둘레 104cm', '46cm' 같은 글자를 cm 숫자로 바꿉니다.
+    값이 없거나 이상하면 ValueError(이유 문장)를 일부러 발생시킵니다.
+    절대로 0cm 같은 값을 임의로 채워 넣지 않습니다. (T05 원칙)
+    """
+    name = FIELD_NAMES[field]
+    text = str(raw_value).strip()
+
+    # (1) 값이 비어 있나?
+    if text.lower() in MISSING_MARKERS:
+        raise ValueError(f"{name} 누락")
+
+    # (2) 글자 속에서 숫자만 꺼내기  (예: '가슴둘레 104cm' -> '104')
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if match is None:
+        raise ValueError(f"{name} 숫자를 읽을 수 없음: '{text}'")
+    value = float(match.group())
+
+    # (3) 단위/의미 정리 (T04)
+    if "mm" in text.lower():          # mm -> cm
+        value = value / 10.0
+    if field == "chest_width_cm" and "둘레" in text:   # 둘레 -> 단면
+        value = value / 2.0
+
+    # (4) 상식 범위 검사
+    low, high = VALID_RANGE_CM[field]
+    if not (low <= value <= high):
+        raise ValueError(f"{name} 값({value:.1f}cm)이 상식 범위({low:.0f}~{high:.0f}cm) 밖")
+
+    return round(value, 1)
+
+# =====================================================================
+# 3. 사이즈표 전체를 정리하고 검수하는 함수
+# =====================================================================
+def normalize_sizes(raw_sizes):
+    """사이즈(S/M/L)별로 값을 정리하고 status를 붙입니다.
+    status = "ok"            -> 추천에 쓸 수 있음
+    status = "needs_review"  -> 문제가 있어서 추천에서 제외 (이유는 reason에)
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    result = {}
+
+    for size_name, raw in raw_sizes.items():
+        entry = {"status": "ok", "reason": "", "checked_at": today, "measurements": {}}
+
+        try:
+            # 필수 부위: 하나라도 실패하면 except로 이동
+            for field in REQUIRED_FIELDS:
+                entry["measurements"][field] = parse_measurement(field, raw.get(field))
+        except ValueError as e:
+            entry["status"] = "needs_review"
+            entry["reason"] = str(e)
+            entry["measurements"] = {}   # 잘못된 값이 실수로 쓰이지 않게 비워 둠
+        else:
+            # 선택 부위: 실패해도 None으로 두고 계속 진행
+            for field in OPTIONAL_FIELDS:
+                try:
+                    entry["measurements"][field] = parse_measurement(field, raw.get(field))
+                except ValueError:
+                    entry["measurements"][field] = None
+
+        result[size_name] = entry
+
+    return result
+
+# =====================================================================
+# 4. 사이즈 추천 함수
+# =====================================================================
+def recommend_size(user_ref, normalized_sizes):
+    """내 옷 치수와 가장 가까운 사이즈를 고릅니다. 항상 dict를 돌려주고, 'ok' 키로 성공 여부를 알려줍니다."""
+    mine = user_ref["measurements"]
+
+    # 목표 치수 = 내 옷 치수 + 원하는 핏에 따른 여유
+    offset = FIT_OFFSET_CM.get(user_ref.get("desired_fit"), 0.0)
+    target = {f: mine[f] + offset for f in SCORE_FIELDS}
+
+    candidates = []   # (점수, 사이즈이름)  점수가 작을수록 좋음
+    excluded = {}     # 제외된 사이즈와 이유
+
+    for size_name, entry in normalized_sizes.items():
+        # 검수 안 된 사이즈는 건너뜀 (T05)
+        if entry["status"] != "ok":
+            excluded[size_name] = entry["reason"]
+            continue
+
+        # 부위별로 목표와 얼마나 차이 나는지
+        gaps = {f: abs(entry["measurements"][f] - target[f]) for f in SCORE_FIELDS}
+
+        # 한 부위라도 너무 많이 다르면 제외 (허용 범위)
+        if max(gaps.values()) > TOLERANCE_CM:
+            excluded[size_name] = f"허용 범위({TOLERANCE_CM}cm) 초과"
+            continue
+
+        candidates.append((round(sum(gaps.values()), 1), size_name))
+
+    # 추천할 게 하나도 없으면 에러로 멈추지 말고 '실패 결과'를 돌려줌 (T08)
+    if not candidates:
+        return {
+            "ok": False,
+            "message": "적합한 사이즈를 찾지 못했습니다. 사이즈표를 직접 입력해 주세요.",
+            "excluded": excluded,
+        }
+
+    # 점수가 가장 작은 사이즈 선택. 동점이면 표에서 먼저 나온 사이즈(보통 작은 쪽)가 선택됨
+    candidates.sort(key=lambda c: c[0])
+    best_score, best_size = candidates[0]
+    best = normalized_sizes[best_size]["measurements"]
+
+    # 보여줄 차이는 '내 실제 옷' 기준 (+는 상품이 더 큼)
+    diff_details = {}
+    for field in SCORE_FIELDS + OPTIONAL_FIELDS:
+        if best.get(field) is not None and mine.get(field) is not None:
+            diff_details[field] = f"{best[field] - mine[field]:+.1f}cm"
+
+    return {
+        "ok": True,
+        "source_url": user_ref["reference_url"],
+        "recommended_size": best_size,
+        "score": best_score,
+        "diff_details": diff_details,
+        "excluded": excluded,
+    }
+
+# =====================================================================
+# 5. 간단한 자가 점검 (테스트의 첫걸음)
+# =====================================================================
+def run_self_check():
+    assert parse_measurement("shoulder_cm", "440mm") == 44.0
+    assert parse_measurement("chest_width_cm", "가슴둘레 104cm") == 52.0
+    assert parse_measurement("length_cm", "71cm") == 71.0
+
+    for bad_value in ["-", "미제공", None, "abc"]:
+        try:
+            parse_measurement("shoulder_cm", bad_value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{bad_value!r} 는 에러가 나야 하는데 통과함")
+
+    # 상식 범위 밖 값은 거부되어야 함
+    try:
+        parse_measurement("shoulder_cm", "200cm")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("200cm 는 거부되어야 함")
+
+    print("자가 점검 통과\n")
+
+# =====================================================================
+# 6. 실행
+# =====================================================================
+if __name__ == "__main__":
+    run_self_check()
+
+    clean_sizes = normalize_sizes(raw_extracted_data["raw_sizes"])
+    print("[1] 정규화/검수 결과")
+    print(json.dumps(clean_sizes, ensure_ascii=False, indent=2))
+
+    result = recommend_size(user_reference_clothes, clean_sizes)
+
+    print("\n" + "=" * 42)
+    if result["ok"]:
+        print(f"[2] 추천 사이즈: {result['recommended_size']}  (점수 {result['score']}, 낮을수록 좋음)")
+        print(f"    내 옷 대비 차이: {result['diff_details']}")
+    else:
+        print(f"[2] 추천 실패: {result['message']}")
+    if result["excluded"]:
+        print(f"    제외된 사이즈: {result['excluded']}")
+    print("=" * 42)
