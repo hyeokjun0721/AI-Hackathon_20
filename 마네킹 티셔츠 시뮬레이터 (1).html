@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>마네킹 티셔츠 시뮬레이터</title>
+<style>
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1a22; font-family: sans-serif; }
+  #info { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; color: #ddd;
+    background: rgba(0,0,0,0.45); padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; user-select: none; }
+  #info b { color: #fff; }
+  #info button, #info label { margin-top: 6px; color: #ddd; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="info">
+  <b>마네킹 티셔츠</b><br>
+  빈 곳 드래그: 회전 / 휠: 줌<br>
+  옷 드래그: 잡아당기기<br>
+  <label><input type="checkbox" id="wind" /> 바람</label><br>
+  옷감 <select id="fabric">
+    <option value="cotton">면</option>
+    <option value="knit">니트</option>
+    <option value="denim">데님</option>
+    <option value="silk">실크</option>
+  </select>
+  <button id="reset">리셋</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const YSH = 2.0;                  // 어깨 높이
+const GAP = 0.02;
+let ITER = 8, SUBSTEPS = 2;
+let GRAVITY = -9.8, DAMPING = 0.98;
+let STRETCH = 0.9, BEND = 0.2, GMUL = 1;
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// ---------- 마네킹 (캡슐 충돌체) ----------
+const ARM_ANG = 18 * Math.PI / 180, ARM_R = 0.12, ARM_L = 1.25;
+const armDir = (sg) => V3(sg * Math.sin(ARM_ANG), -Math.cos(ARM_ANG), 0);
+const armRoot = (sg) => V3(sg * 0.4, YSH - 0.05, 0);
+const CAP = {
+  torso: { a: V3(0, 1.15, 0), b: V3(0, YSH - 0.30, 0), r: 0.36 },
+  bar:   { a: V3(-0.4, YSH - 0.05, 0), b: V3(0.4, YSH - 0.05, 0), r: 0.15 },
+  neck:  { a: V3(0, YSH, 0), b: V3(0, YSH + 0.22, 0), r: 0.11 },
+  head:  { a: V3(0, YSH + 0.5, 0), b: V3(0, YSH + 0.5, 0), r: 0.25 },
+  armR:  { a: armRoot(1), b: armRoot(1).addScaledVector(armDir(1), ARM_L), r: ARM_R },
+  armL:  { a: armRoot(-1), b: armRoot(-1).addScaledVector(armDir(-1), ARM_L), r: ARM_R },
+};
+const num = (c) => ({
+  ax: c.a.x, ay: c.a.y, az: c.a.z,
+  bx: c.b.x - c.a.x, by: c.b.y - c.a.y, bz: c.b.z - c.a.z,
+  len2: c.b.distanceToSquared(c.a), r: c.r + GAP
+});
+const BODY_CAPS = [CAP.torso, CAP.bar, CAP.neck, CAP.head].map(num);   // 몸판은 팔과 충돌하지 않음
+const SLEEVE_CAPS = Object.values(CAP).map(num);
+
+// ---------- 장면 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a22);
+scene.fog = new THREE.Fog(0x1a1a22, 14, 32);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.7, 6.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.5, 0);
+controls.enableDamping = true;
+controls.update();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 0.9));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(4, 8, 5);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+Object.assign(dirLight.shadow.camera, { left: -4, right: 4, top: 5, bottom: -2 });
+scene.add(dirLight);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30),
+  new THREE.MeshStandardMaterial({ color: 0x2a2a35, roughness: 0.9 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const skin = new THREE.MeshStandardMaterial({ color: 0xe6e0d6, roughness: 0.55 });
+function addCap(c) {
+  const dir = new THREE.Vector3().subVectors(c.b, c.a), len = dir.length();
+  const m = len < 1e-6
+    ? new THREE.Mesh(new THREE.SphereGeometry(c.r, 32, 24), skin)
+    : new THREE.Mesh(new THREE.CapsuleGeometry(c.r, len, 8, 28), skin);
+  m.position.copy(c.a).add(c.b).multiplyScalar(0.5);
+  if (len >= 1e-6) m.quaternion.setFromUnitVectors(V3(0, 1, 0), dir.normalize());
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m);
+}
+Object.values(CAP).forEach(addCap);
+// 목 아래~어깨 막대 가로 캡슐은 Y축 기준이 아니라 위 함수가 회전 처리함
+const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 16),
+  new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.7, roughness: 0.3 }));
+pole.position.y = 0.4; pole.castShadow = true; scene.add(pole);
+const base = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.04, 40),
+  new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.6, roughness: 0.4 }));
+base.position.y = 0.02; base.receiveShadow = true; scene.add(base);
+
+// ---------- 몸판 프로필 (어깨 기준 상대 높이, 가로 반지름, 세로 반지름) ----------
+const KEYS = [
+  [0.21, 0.135, 0.135],   // 칼라 윗단
+  [0.12, 0.135, 0.135],   // 칼라 아랫단
+  [0.11, 0.30, 0.20],     // 어깨선
+  [0.05, 0.52, 0.25],
+  [-0.04, 0.58, 0.31],
+  [-0.14, 0.50, 0.39],
+  [-0.32, 0.44, 0.42],
+  [-0.60, 0.43, 0.41],
+  [-1.00, 0.45, 0.43]     // 밑단
+];
+const SUBS = [4, 1, 2, 2, 2, 3, 5, 8];
+const rows = [KEYS[0]];
+for (let k = 0; k < SUBS.length; k++) {
+  for (let s = 1; s <= SUBS[k]; s++) {
+    const t = s / SUBS[k];
+    rows.push(KEYS[k].map((v, i) => v + (KEYS[k + 1][i] - v) * t));
+  }
+}
+const RB = rows.length, CB = 64, PIN_ROWS = 5;     // 칼라 5줄은 목에 고정
+const CS = 22, RS = 12;                             // 소매 둘레 점 수, 줄 수
+const NB = RB * CB, NS = CS * RS, N = NB + NS * 2;
+const bi = (r, c) => r * CB + ((c + CB) % CB);
+const si = (s, j, k) => NB + s * NS + j * CS + ((k + CS) % CS);
+
+const pos = new Float32Array(N * 3), prev = new Float32Array(N * 3);
+const invMass = new Float32Array(N);
+const kind = new Uint8Array(N);                     // 0 몸판, 1 소매
+const colors = new Float32Array(N * 3);
+
+const PLACKET_END = rows.findIndex((r) => r[0] <= -0.30);
+for (let q = 0; q < N; q++) {
+  kind[q] = q < NB ? 0 : 1;
+  colors.set([0.77, 0.78, 0.79], q * 3);
+}
+for (let r = 5; r <= PLACKET_END; r++) {
+  for (const c of [CB - 1, 0]) colors.set([0.9, 0.91, 0.92], bi(r, c) * 3);
+}
+
+function setP(q, x, y, z, m) {
+  pos.set([x, y, z], q * 3); prev.set([x, y, z], q * 3); invMass[q] = m;
+}
+function build() {
+  for (let r = 0; r < RB; r++) {
+    const [yr, rx, rz] = rows[r];
+    for (let c = 0; c < CB; c++) {
+      const th = 2 * Math.PI * c / CB;
+      setP(bi(r, c), rx * Math.sin(th), YSH + yr, rz * Math.cos(th), r < PIN_ROWS ? 0 : 1);
+    }
+  }
+  for (let s = 0; s < 2; s++) {
+    const sg = s ? -1 : 1, root = armRoot(sg), dir = armDir(sg);
+    const n1 = V3(sg * Math.cos(ARM_ANG), Math.sin(ARM_ANG), 0), n2 = V3(0, 0, 1);
+    for (let j = 0; j < RS; j++) {
+      const f = j / (RS - 1), rad = 0.15 + 0.04 * f;
+      const ctr = root.clone().addScaledVector(dir, 0.05 + 0.45 * f);
+      for (let k = 0; k < CS; k++) {
+        const ph = 2 * Math.PI * k / CS;
+        const p = ctr.clone().addScaledVector(n1, rad * Math.cos(ph)).addScaledVector(n2, rad * Math.sin(ph));
+        setP(si(s, j, k), p.x, p.y, p.z, j === 0 ? 0 : 1);
+      }
+    }
+  }
+}
+build();
+
+// ---------- 제약 / 삼각형 ----------
+const ca = [], cb = [], cr = [], cbd = [];
+const dist = (a, b) => Math.hypot(pos[a * 3] - pos[b * 3], pos[a * 3 + 1] - pos[b * 3 + 1], pos[a * 3 + 2] - pos[b * 3 + 2]);
+const addC = (a, b, bend = 0) => { ca.push(a); cb.push(b); cr.push(dist(a, b)); cbd.push(bend); };
+const idxs = [];
+for (let r = 0; r < RB - 1; r++) for (let c = 0; c < CB; c++) {
+  addC(bi(r, c), bi(r, c + 1)); addC(bi(r, c), bi(r + 1, c));
+  addC(bi(r, c), bi(r + 1, c + 1)); addC(bi(r, c + 1), bi(r + 1, c));
+  if (r + 2 < RB) addC(bi(r, c), bi(r + 2, c), 1);
+  idxs.push(bi(r, c), bi(r + 1, c), bi(r, c + 1), bi(r, c + 1), bi(r + 1, c), bi(r + 1, c + 1));
+}
+for (let c = 0; c < CB; c++) addC(bi(RB - 1, c), bi(RB - 1, c + 1));
+for (let s = 0; s < 2; s++) {
+  for (let j = 0; j < RS; j++) for (let k = 0; k < CS; k++) {
+    addC(si(s, j, k), si(s, j, k + 1));
+    if (j + 1 < RS) {
+      addC(si(s, j, k), si(s, j + 1, k));
+      addC(si(s, j, k), si(s, j + 1, k + 1)); addC(si(s, j, k + 1), si(s, j + 1, k));
+      idxs.push(si(s, j, k), si(s, j + 1, k), si(s, j, k + 1), si(s, j, k + 1), si(s, j + 1, k), si(s, j + 1, k + 1));
+    }
+    if (j + 2 < RS) addC(si(s, j, k), si(s, j + 2, k), 1);
+  }
+}
+const CA = Int32Array.from(ca), CBn = Int32Array.from(cb), CR = Float32Array.from(cr), NC = CA.length;
+const CT = Uint8Array.from(cbd);
+
+// ---------- 메시 ----------
+const geometry = new THREE.BufferGeometry();
+const posAttr = new THREE.BufferAttribute(pos, 3);
+posAttr.setUsage(THREE.DynamicDrawUsage);
+geometry.setAttribute('position', posAttr);
+geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+geometry.setIndex(idxs);
+const shirt = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+  vertexColors: true, side: THREE.DoubleSide, roughness: 0.9
+}));
+shirt.castShadow = true; shirt.receiveShadow = true; shirt.frustumCulled = false;
+scene.add(shirt);
+
+// 단추 (천 위 점을 따라다님)
+const BTN_ROWS = [rows.findIndex((r) => r[0] <= -0.08), rows.findIndex((r) => r[0] <= -0.20)];
+const btnMat = new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.3 });
+const buttons = BTN_ROWS.map(() => {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 12), btnMat);
+  m.castShadow = true; scene.add(m); return m;
+});
+function updateButtons() {
+  const nrm = geometry.attributes.normal;
+  BTN_ROWS.forEach((r, i) => {
+    const a = bi(r, -1), b = bi(r, 0);
+    const mx = (pos[a * 3] + pos[b * 3]) / 2, my = (pos[a * 3 + 1] + pos[b * 3 + 1]) / 2, mz = (pos[a * 3 + 2] + pos[b * 3 + 2]) / 2;
+    let nx = nrm.getX(a) + nrm.getX(b), ny = nrm.getY(a) + nrm.getY(b), nz = nrm.getZ(a) + nrm.getZ(b);
+    if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    const l = Math.hypot(nx, ny, nz) || 1;
+    buttons[i].position.set(mx + nx / l * 0.012, my + ny / l * 0.012, mz + nz / l * 0.012);
+  });
+}
+
+// ---------- 물리 ----------
+function collide(q, caps) {
+  let x = pos[q * 3], y = pos[q * 3 + 1], z = pos[q * 3 + 2];
+  for (const c of caps) {
+    let t = 0;
+    if (c.len2 > 0) {
+      t = ((x - c.ax) * c.bx + (y - c.ay) * c.by + (z - c.az) * c.bz) / c.len2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+    }
+    const cx = c.ax + c.bx * t, cy = c.ay + c.by * t, cz = c.az + c.bz * t;
+    const dx = x - cx, dy = y - cy, dz = z - cz, d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < c.r * c.r) {
+      const f = c.r / (Math.sqrt(d2) || 1e-6);
+      x = cx + dx * f; y = cy + dy * f; z = cz + dz * f;
+    }
+  }
+  pos[q * 3] = x; pos[q * 3 + 1] = y; pos[q * 3 + 2] = z;
+}
+
+function step(dt, t) {
+  const wind = document.getElementById('wind').checked;
+  const dt2 = dt * dt;
+  for (let k = 0; k < N; k++) {
+    if (invMass[k] === 0) continue;
+    const ix = k * 3, iy = ix + 1, iz = ix + 2;
+    const vx = (pos[ix] - prev[ix]) * DAMPING, vy = (pos[iy] - prev[iy]) * DAMPING, vz = (pos[iz] - prev[iz]) * DAMPING;
+    let ax = 0, az = 0;
+    if (wind) { az = 0.8 + Math.sin(t * 1.3) * 0.5; ax = Math.sin(t * 2 + pos[iy] * 2) * 0.2; }
+    prev[ix] = pos[ix]; prev[iy] = pos[iy]; prev[iz] = pos[iz];
+    pos[ix] += vx + ax * dt2; pos[iy] += vy + GRAVITY * GMUL * dt2; pos[iz] += vz + az * dt2;
+  }
+  for (let it = 0; it < ITER; it++) {
+    for (let s = 0; s < NC; s++) {
+      const a = CA[s], b = CBn[s], wa = invMass[a], wb = invMass[b], ws = wa + wb;
+      if (ws === 0) continue;
+      const ax = a * 3, bx = b * 3;
+      const dx = pos[bx] - pos[ax], dy = pos[bx + 1] - pos[ax + 1], dz = pos[bx + 2] - pos[ax + 2];
+      const len = Math.hypot(dx, dy, dz) || 1e-6, diff = (len - CR[s]) / len;
+      const kk = CT[s] ? BEND : STRETCH;
+      const cA = wa / ws * diff * kk, cB = wb / ws * diff * kk;
+      pos[ax] += dx * cA; pos[ax + 1] += dy * cA; pos[ax + 2] += dz * cA;
+      pos[bx] -= dx * cB; pos[bx + 1] -= dy * cB; pos[bx + 2] -= dz * cB;
+    }
+    for (let q = 0; q < N; q++) if (invMass[q] !== 0) collide(q, kind[q] ? SLEEVE_CAPS : BODY_CAPS);
+  }
+}
+
+// ---------- 옷감 프리셋 ----------
+const FABRIC = {
+  cotton: { iter: 8, sub: 2, damp: 0.98, stretch: 0.9, bend: 0.2, gmul: 1 },
+  knit:   { iter: 6, sub: 2, damp: 0.97, stretch: 0.55, bend: 0.05, gmul: 1 },
+  denim:  { iter: 12, sub: 3, damp: 0.985, stretch: 1, bend: 0.6, gmul: 1.3 },
+  silk:   { iter: 6, sub: 2, damp: 0.995, stretch: 0.8, bend: 0.02, gmul: 0.7 }
+};
+function applyFabric(name) {
+  const f = FABRIC[name];
+  ITER = f.iter; SUBSTEPS = f.sub; DAMPING = f.damp;
+  STRETCH = f.stretch; BEND = f.bend; GMUL = f.gmul;
+}
+document.getElementById('fabric').addEventListener('change', (e) => applyFabric(e.target.value));
+applyFabric('cotton');
+
+// ---------- 드래그 ----------
+const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
+const dragPlane = new THREE.Plane(), hitPoint = new THREE.Vector3(), tmpV = new THREE.Vector3();
+let dragging = -1;
+const setMouse = (e) => {
+  mouse.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+};
+function nearestFree() {
+  let best = -1, bd = 0.25;
+  for (let k = 0; k < N; k++) {
+    if (invMass[k] === 0) continue;
+    tmpV.set(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]);
+    const d = raycaster.ray.distanceToPoint(tmpV);
+    if (d < bd) { bd = d; best = k; }
+  }
+  return best;
+}
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  setMouse(e);
+  const k = nearestFree();
+  if (k < 0) return;
+  dragging = k; controls.enabled = false;
+  const n = new THREE.Vector3(); camera.getWorldDirection(n);
+  dragPlane.setFromNormalAndCoplanarPoint(n, tmpV.set(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]));
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (dragging < 0) return;
+  setMouse(e);
+  if (raycaster.ray.intersectPlane(dragPlane, hitPoint)) {
+    const k = dragging;
+    pos.set([hitPoint.x, hitPoint.y, hitPoint.z], k * 3);
+    prev.set([hitPoint.x, hitPoint.y, hitPoint.z], k * 3);
+  }
+});
+const endDrag = (e) => {
+  if (dragging < 0) return;
+  dragging = -1; controls.enabled = true;
+  renderer.domElement.releasePointerCapture?.(e.pointerId);
+};
+renderer.domElement.addEventListener('pointerup', endDrag);
+renderer.domElement.addEventListener('pointercancel', endDrag);
+document.getElementById('reset').addEventListener('click', () => { build(); dragging = -1; controls.enabled = true; });
+
+// ---------- 루프 ----------
+const clock = new THREE.Clock();
+let tt = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  const fd = Math.min(clock.getDelta(), 1 / 30);
+  tt += fd;
+  for (let s = 0; s < SUBSTEPS; s++) step(fd / SUBSTEPS, tt);
+  posAttr.needsUpdate = true;
+  geometry.computeVertexNormals();
+  updateButtons();
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
