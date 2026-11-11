@@ -13,11 +13,8 @@ venv/
 .env
 .env.*
 !.env.example
-.vscode/
 
-# Keep development checks, previous versions, and duplicate guides local
+# Keep newly added development checks and duplicate guides local
 test_*.py
-archive_v1/
-through_url_data_extraction.py
 README_URL.md
 WEB_README.md
