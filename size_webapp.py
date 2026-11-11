@@ -12,8 +12,6 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 BACKEND_PATH = ROOT / 'size_recommender_gemini.py'
-if not BACKEND_PATH.exists():
-    BACKEND_PATH = ROOT / 'through_url_data_extraction.py'
 spec = importlib.util.spec_from_file_location('size_backend', BACKEND_PATH)
 backend = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backend)
