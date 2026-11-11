@@ -9,6 +9,7 @@ const recommendation = document.querySelector('#recommendation');
 const fields = ['length_cm', 'shoulder_cm', 'chest_width_cm', 'sleeve_cm'];
 let comparison = null;
 let busy = false;
+let blockedUntil = 0;
 
 function element(name, text, className) {
   const el = document.createElement(name);
@@ -19,7 +20,7 @@ function element(name, text, className) {
 function setBusy(value) {
   busy = value;
   panel.setAttribute('aria-busy', String(value));
-  document.querySelectorAll('input, button').forEach(el => el.disabled = value);
+  document.querySelectorAll('input, button, select').forEach(el => el.disabled = value);
 }
 function showError(message) { errorBox.textContent = message; errorBox.hidden = false; }
 async function api(path, body) {
@@ -27,6 +28,7 @@ async function api(path, body) {
     'Content-Type': 'application/json', 'X-Page-Token': document.querySelector('meta[name="page-token"]').content
   }, body: JSON.stringify(body)});
   const data = await response.json();
+  if (response.status === 429 && data.retry_after) blockedUntil = Date.now() + data.retry_after * 1000;
   if (!response.ok) throw new Error(data.error || '요청을 처리하지 못했어요.');
   return data;
 }
@@ -39,17 +41,23 @@ function renderComparison(data) {
   document.querySelector('#empty-state').hidden = true;
   document.querySelector('#results').hidden = false;
   const products = document.querySelector('#products'); products.replaceChildren();
-  for (const [label, product] of [['잘 맞았던 옷 · ' + data.reference.size, data.reference], ['새로 구매할 옷', data.target]]) {
+  for (const [label, product] of [['새로 구매할 옷', data.target]]) {
     const box = element('div', undefined, 'product');
     const link = element('a', product.product_name); link.href = product.source_url;
     link.target = '_blank'; link.rel = 'noopener noreferrer';
-    box.append(element('small', label), link); products.append(box);
+    box.append(element('small', label), link);
+    box.append(element('p', '재질: ' + (product.material || (product.material_status === 'error' ? '수집 실패' : '미제공'))));
+    box.append(element('small', '최신 사용자 후기 · 1개'));
+    for (const review of product.reviews || []) {
+      box.append(element('p', review.content));
+      box.append(element('small', `${review.created_at} · 별점 ${review.rating ?? '미제공'} · 구매 옵션 ${review.purchased_option ?? '미제공'}`));
+      const source = element('a', '후기 원문'); source.href = review.source_url;
+      source.target = '_blank'; source.rel = 'noopener noreferrer'; box.append(source);
+    }
+    if (!product.reviews?.length) box.append(element('p', product.reviews_status === 'error' ? '후기 수집 실패' : '등록된 후기 없음'));
+    products.append(box);
   }
   const rows = document.querySelector('#size-rows'); rows.replaceChildren();
-  const baseline = element('tr', undefined, 'reference-row');
-  const heading = element('th', '기준 ' + data.reference.size); heading.scope = 'row'; baseline.append(heading);
-  fields.forEach(field => baseline.append(element('td', data.reference.measurements[field] ?? '—')));
-  rows.append(baseline);
   for (const item of data.sizes) {
     const tr = element('tr'); tr.dataset.size = item.size;
     const th = element('th', item.size); th.scope = 'row'; tr.append(th);
@@ -94,16 +102,21 @@ async function requestRecommendation() {
 }
 async function submit(withAI) {
   if (busy || !form.reportValidity()) return;
+  if (Date.now() < blockedUntil) {
+    showError(`무신사 요청 제한 대기 중입니다. ${Math.ceil((blockedUntil - Date.now()) / 1000)}초 후 다시 시도해 주세요.`);
+    return;
+  }
   if (withAI && !keyInput.value.trim()) { showError('AI 추천을 받으려면 API 키를 입력해 주세요.'); keyInput.focus(); return; }
   errorBox.hidden = true;
   const body = Object.fromEntries(new FormData(form)); delete body.api_key;
+  body.profile_index = 0; // 기존 기본 기준(첫 번째 저장한 옷)을 내부적으로 재사용합니다.
   setBusy(true); comparison = null; retry.hidden = true;
   document.querySelector('#results').hidden = true; document.querySelector('#empty-state').hidden = false;
-  tag.textContent = '정보 수집 중'; statusBox.textContent = '두 상품의 사이즈표를 가져오고 있어요…';
+  tag.textContent = '정보 수집 중'; statusBox.textContent = '새 상품의 사이즈표, 재질, 최신 후기 1개를 가져오고 있어요…';
   try {
     comparison = await api('/api/compare', body); renderComparison(comparison);
     if (withAI) await requestRecommendation();
-    else statusBox.textContent = '치수 비교를 완료했어요. API 키 없이 확인할 수 있습니다.';
+    else statusBox.textContent = '비교를 완료했어요. 반복 요청을 줄이기 위해 수집 정보는 최대 5분간 재사용합니다.';
   } catch (error) {
     showError(error.message); tag.textContent = '입력 확인'; statusBox.textContent = '';
   } finally { setBusy(false); }
@@ -122,3 +135,15 @@ form.addEventListener('input', event => {
   document.querySelector('#results').hidden = true; document.querySelector('#empty-state').hidden = false;
   tag.textContent = '다시 비교 필요'; statusBox.textContent = '입력이 바뀌었어요. 다시 비교해 주세요.';
 });
+
+async function loadSavedReferences() {
+  setBusy(true);
+  try {
+    const response = await fetch('/api/profile');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    if (!data.profile) { window.location.replace('/'); return; }
+    setBusy(false);
+  } catch (error) { showError(error.message || '저장한 옷을 불러오지 못했어요. 첫 화면에서 다시 등록해 주세요.'); }
+}
+loadSavedReferences();

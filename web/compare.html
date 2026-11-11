@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="page-token" content="__CSRF_TOKEN__">
+  <title>핏노트 — 내 옷으로 찾는 사이즈</title>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top"><a class="brand" href="/">핏노트<span class="brand-dot"></span></a><span class="tag">나에게 맞는 옷의 기준</span></header>
+  <main>
+    <section class="intro"><p class="eyebrow">02 · 새 옷 비교</p><h1>이제, 새 옷을 비교해 볼까요?</h1><p class="lead">입어본 옷의 실측으로, 새 옷의 사이즈를 비교해 보세요.</p><span class="support">무신사 상의 지원 · 단위 cm</span></section>
+    <div class="layout">
+      <section class="input-panel" aria-labelledby="input-title">
+        <h2 id="input-title" class="sr-only">옷 정보 입력</h2>
+        <form id="compare-form">
+          <fieldset><legend><span class="number">01</span>새로 구매할 옷</legend>
+            <label for="target-url">상품 URL</label><input id="target-url" name="target_url" type="url" placeholder="https://www.musinsa.com/products/..." required maxlength="2048">
+            <label for="desired-fit">원하는 핏</label><input id="desired-fit" name="desired_fit" value="기준 옷과 비슷한 핏" placeholder="예: 조금 더 여유로운 핏" required maxlength="160">
+          </fieldset>
+          <fieldset class="api-field"><legend><span class="number">02</span>AI 추천 <span class="optional">선택</span></legend>
+            <label for="api-key">Gemini API 키</label><input id="api-key" name="api_key" type="password" placeholder="AI 추천을 받을 때만 입력" autocomplete="off" maxlength="1024" spellcheck="false">
+            <p class="hint">입력한 키는 파일이나 브라우저 저장소에 저장하지 않아요.</p>
+          </fieldset>
+          <div class="actions"><button class="primary" type="submit" id="recommend-button">내 사이즈 추천받기 <span aria-hidden="true">↗</span></button><button class="secondary" type="button" id="compare-button">키 없이 치수만 비교</button></div>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+          <p id="error" class="error" role="alert" hidden></p>
+        </form>
+      </section>
+      <section class="result-panel" aria-labelledby="result-title" aria-busy="false">
+        <div class="result-top"><h2 id="result-title">사이즈 비교</h2><span class="tag" id="result-tag">입력 대기</span></div>
+        <div id="empty-state" class="empty-state"><div class="ruler" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><h3>내 옷에서 시작하는<br>조금 더 확실한 선택.</h3><p>새로 구매할 상품을 입력하면<br>부위별 치수 차이를 한눈에 보여드려요.</p><div class="measure-labels"><span>총장</span><span>어깨너비</span><span>가슴단면</span><span>소매길이</span></div></div>
+        <div id="results" hidden>
+          <div id="products" class="products"></div>
+          <div class="table-intro"><h3>기준 옷과 얼마나 다를까요?</h3><span>+ 더 큼 / − 더 작음</span></div>
+          <div class="table-scroll"><table><caption class="sr-only">새 옷 사이즈별 실측 및 저장된 기준과의 차이</caption><thead><tr><th scope="col">사이즈</th><th scope="col">총장</th><th scope="col">어깨</th><th scope="col">가슴단면</th><th scope="col">소매</th></tr></thead><tbody id="size-rows"></tbody></table></div>
+          <p class="hint table-note">큰 숫자는 실측, 아래 숫자는 잘 맞던 옷과의 차이예요.</p>
+          <div id="recommendation" class="recommendation" aria-live="polite"></div>
+          <button type="button" class="secondary retry" id="retry-button" hidden>현재 비교로 AI 추천 다시 받기</button>
+          <p class="disclaimer">같은 치수라도 소재와 디자인에 따라 착용감이 달라질 수 있어요. 구매 전 상품의 측정 안내도 확인해 주세요.</p>
+        </div>
+      </section>
+    </div>
+    <footer>FIT NOTE <span>내 옷의 치수로, 더 편안한 선택.</span></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Local profiles and collected samples
+data/
+tmp/
+product.json
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local credentials and editor settings
+.env
+.env.*
+!.env.example
+.vscode/
