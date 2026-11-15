@@ -3,7 +3,6 @@ import argparse
 import importlib.util
 import json
 import secrets
-import socket
 import threading
 import time
 from datetime import datetime
@@ -83,7 +82,7 @@ def required_text(data, key, maximum=2048):
 
 def public_product(product):
     return {k: product.get(k) for k in ['product_name', 'brand', 'source_url', 'measurement_note',
-            'material', 'material_status', 'material_source_url', 'stretch', 'reviews', 'reviews_status',
+            'material', 'material_status', 'material_source_url', 'reviews', 'reviews_status',
             'review_source_url', 'review_sort', 'review_limit', 'collection_warnings']}
 
 
@@ -107,11 +106,6 @@ def compare_products(data):
     old = saved['product'] if saved else backend.fetch_product_from_url(reference_url)
     reference = backend.build_reference_clothes(old, size, fit)
     new = old if reference_id == target_id else backend.fetch_product_from_url(target_url)
-    if saved and 'stretch' not in old:
-        old = {**old, 'stretch': backend.fetch_product_stretch(reference_url)}
-        reference['stretch'] = old['stretch']
-        if reference_id == target_id:
-            new = old
     normalized = backend.normalize_sizes(new['raw_sizes'])
     if not any(row['status'] == 'ok' for row in normalized.values()):
         raise ValueError('새 상품에 비교 가능한 실측표가 없습니다. 어깨·총장·가슴단면이 있는 상의로 시도해 주세요.')
@@ -133,8 +127,7 @@ def compare_products(data):
                 CACHE.pop(key)
         while len(CACHE) >= 64:
             CACHE.pop(next(iter(CACHE)))
-        CACHE[comparison_id] = {'created': now, 'reference': reference, 'normalized': normalized,
-                                'target': public_product(new)}
+        CACHE[comparison_id] = {'created': now, 'reference': reference, 'normalized': normalized}
     return {'comparison_id': comparison_id, 'reference': {**public_product(old),
             'size': reference['purchased_size'], 'measurements': reference['measurements']},
             'target': public_product(new), 'desired_fit': fit, 'sizes': rows}
@@ -150,7 +143,7 @@ def recommend_comparison(data):
             raise ValueError('비교 정보가 만료되었습니다. 치수 비교를 다시 실행해 주세요.')
     try:
         # Use only the key entered on this page, never a key hardcoded in the CLI module.
-        return backend.recommend_size(stored['reference'], stored['normalized'], api_key, stored['target'])
+        return backend.recommend_size(stored['reference'], stored['normalized'], api_key)
     except (RuntimeError, ValueError) as exc:
         raise RuntimeError(str(exc).replace(api_key, '[숨김]')) from None
 
@@ -177,8 +170,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_body(code, json.dumps(data, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
 
     def valid_host(self):
-        port = self.server.server_port
-        return self.headers.get('Host') in (f'127.0.0.1:{port}', f'localhost:{port}')
+        host = self.headers.get('Host', '').split(':')[0]
+        return host in ('127.0.0.1', 'localhost') or host.endswith('.trycloudflare.com')
 
     def do_GET(self):
         if not self.valid_host():
@@ -204,7 +197,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         origin = self.headers.get('Origin')
-        expected = f'http://{self.headers.get("Host")}'
+        host = self.headers.get('Host', '')
+        scheme = 'https' if host.split(':')[0].endswith('.trycloudflare.com') else 'http'
+        expected = f'{scheme}://{host}'
         if (not self.valid_host() or (origin is not None and origin != expected)
                 or not secrets.compare_digest(self.headers.get('X-Page-Token', ''), CSRF_TOKEN)):
             return self.send_json(403, {'error': '페이지를 새로고침한 뒤 다시 시도해 주세요.'})
@@ -239,21 +234,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(500, {'error': '처리 중 문제가 생겼습니다. 입력을 확인한 뒤 다시 시도해 주세요.'})
 
 
-class LocalHTTPServer(ThreadingHTTPServer):
-    def server_bind(self):
-        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
-            # Windows can allow several servers to share a port with SO_REUSEADDR.
-            self.allow_reuse_address = False
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        super().server_bind()
-
-
 def main():
     parser = argparse.ArgumentParser(description='사이즈 비교 로컬 웹사이트')
     parser.add_argument('--port', type=int, default=8000)
     args = parser.parse_args()
     try:
-        server = LocalHTTPServer(('127.0.0.1', args.port), Handler)
+        server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     except OSError:
         raise SystemExit('포트를 사용할 수 없습니다. python size_webapp.py --port 8001 로 실행해 주세요.')
     print(f'웹사이트: http://127.0.0.1:{server.server_port}', flush=True)
