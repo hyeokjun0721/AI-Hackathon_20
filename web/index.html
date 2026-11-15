@@ -1,12 +1,25 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 내 옷 3개 등록</title><link rel="stylesheet" href="/style.css"><script src="/onboarding.js" defer></script></head>
-<body><header class="top"><a class="brand" href="/">핏노트<span class="brand-dot"></span></a><span class="tag">내 옷 등록 → 새 옷 비교</span></header><main>
-<section class="intro"><p class="eyebrow">01 · 나에게 잘 맞는 기준 만들기</p><h1>잘 맞았던 옷,<br>3개만 알려 주세요.</h1><p class="lead">자주 손이 가는 옷의 URL과 입었던 사이즈를 저장해 두세요.<br>다음부터는 다시 입력하지 않아도 돼요.</p><span class="support">무신사 상의 지원 · 서로 다른 옷 3개</span></section>
-<section id="saved-profile" class="input-panel saved-profile" hidden><h2>저장해 둔 내 옷이 있어요</h2><div id="saved-clothes"></div><p id="saved-traits" class="hint"></p><p class="hint">옷의 실측 범위이며 신체 치수나 체형을 뜻하지 않아요.</p><a class="primary continue-link" href="/compare">저장한 옷으로 계속하기 →</a><button id="edit-profile" type="button" class="secondary">내 옷 수정하기</button></section>
-<form id="profile-form" hidden><div class="onboarding-grid"><fieldset class="clothes-card"><legend><span class="number">01</span>잘 맞았던 옷 1</legend>
-<label for="url-1">무신사 상품 URL</label><input id="url-1" type="url" required maxlength="2048" placeholder="https://www.musinsa.com/products/...">
-<label for="size-1">입었던 사이즈</label><input id="size-1" required maxlength="80" placeholder="예: M, L, 100"><p class="hint">상품 사이즈표의 이름 그대로 입력해 주세요.</p></fieldset><fieldset class="clothes-card"><legend><span class="number">02</span>잘 맞았던 옷 2</legend>
-<label for="url-2">무신사 상품 URL</label><input id="url-2" type="url" required maxlength="2048" placeholder="https://www.musinsa.com/products/...">
-<label for="size-2">입었던 사이즈</label><input id="size-2" required maxlength="80" placeholder="예: M, L, 100"><p class="hint">상품 사이즈표의 이름 그대로 입력해 주세요.</p></fieldset><fieldset class="clothes-card"><legend><span class="number">03</span>잘 맞았던 옷 3</legend>
-<label for="url-3">무신사 상품 URL</label><input id="url-3" type="url" required maxlength="2048" placeholder="https://www.musinsa.com/products/...">
-<label for="size-3">입었던 사이즈</label><input id="size-3" required maxlength="80" placeholder="예: M, L, 100"><p class="hint">상품 사이즈표의 이름 그대로 입력해 주세요.</p></fieldset></div><div class="onboarding-bottom"><div><h2>한 번 등록하고, 다음에도 그대로.</h2><p class="hint">옷의 실측·재질과 최신 후기 1개를 가져옵니다.<br>이 컴퓨터에 프로필 1개를 저장하며, 수정하면 기존 정보를 바꿉니다.</p></div><button class="primary" id="save-profile" type="submit">내 옷 저장하고 다음으로 →</button></div></form>
-<p id="profile-status" class="status" role="status" aria-live="polite">저장한 옷을 확인하고 있어요…</p><p id="profile-error" class="error" role="alert" hidden></p><footer>FIT NOTE <span>내 옷의 치수로, 더 편안한 선택.</span></footer></main></body></html>
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 내 옷장</title><link rel="stylesheet" href="/style.css"><script src="/onboarding.js" defer></script></head>
+<body>
+<header class="top"><a class="brand" href="/">핏노트</a><span class="tag">MY WARDROBE</span></header>
+<main>
+  <section class="intro"><p class="eyebrow">MY FIT</p><h1 id="wardrobe-title">잘 맞는 옷 3벌.</h1></section>
+  <section id="saved-profile" class="input-panel saved-profile" hidden>
+    <h2>내 옷장</h2><div id="saved-clothes"></div>
+    <details><summary>내 옷의 실측 범위</summary><p id="saved-traits" class="hint"></p><p class="hint">신체 치수가 아닌 옷의 실측이에요.</p></details>
+    <a class="primary continue-link" href="/compare">새 옷 비교 ↗</a><button id="edit-profile" type="button" class="secondary">수정</button>
+  </section>
+  <form id="profile-form" hidden>
+    <div class="onboarding-grid">
+      <fieldset class="clothes-card"><legend><span class="number">01</span>기준 옷</legend><label for="url-1">상품 링크</label><input id="url-1" type="url" required maxlength="2048" placeholder="무신사 URL" inputmode="url"><label for="size-1">입었던 사이즈</label><input id="size-1" required maxlength="80" placeholder="M / L / 100"></fieldset>
+      <fieldset class="clothes-card"><legend><span class="number">02</span>기준 옷</legend><label for="url-2">상품 링크</label><input id="url-2" type="url" required maxlength="2048" placeholder="무신사 URL" inputmode="url"><label for="size-2">입었던 사이즈</label><input id="size-2" required maxlength="80" placeholder="M / L / 100"></fieldset>
+      <fieldset class="clothes-card"><legend><span class="number">03</span>기준 옷</legend><label for="url-3">상품 링크</label><input id="url-3" type="url" required maxlength="2048" placeholder="무신사 URL" inputmode="url"><label for="size-3">입었던 사이즈</label><input id="size-3" required maxlength="80" placeholder="M / L / 100"></fieldset>
+    </div>
+    <div class="onboarding-bottom"><p class="hint">무신사 상의 · 서로 다른 3벌 · 이 기기에 저장</p><button class="primary" id="save-profile" type="submit">저장하고 시작 ↗</button></div>
+  </form>
+  <p id="profile-status" class="status" role="status" aria-live="polite">옷장 확인 중…</p><p id="profile-error" class="error" role="alert" hidden></p>
+  <footer><span>FIT NOTE</span><span>YOUR FIT, FOUND.</span></footer>
+</main>
+</body>
+</html>

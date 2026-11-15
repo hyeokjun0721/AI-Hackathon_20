@@ -23,11 +23,13 @@ async function loadProfile() {
       document.querySelector('#saved-traits').textContent = Object.entries(profile.measurement_preferences)
         .map(([field, value]) => `${labels[field]} ${value.min}–${value.max}cm`).join(' · ');
       savedBox.hidden = false;
+      document.querySelector('#wardrobe-title').textContent = '나의 핏, 여기서 시작.';
     } else form.hidden = false;
     statusBox.textContent = '';
   } catch (error) { showError(error.message || '저장한 옷을 불러오지 못했어요.'); form.hidden = false; statusBox.textContent = ''; }
 }
 document.querySelector('#edit-profile').addEventListener('click', () => {
+  document.querySelector('#wardrobe-title').textContent = '잘 맞는 옷 3벌.';
   savedBox.hidden = true; form.hidden = false; document.querySelector('#url-1').focus();
 });
 form.addEventListener('submit', async event => {

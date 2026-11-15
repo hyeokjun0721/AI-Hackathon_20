@@ -8,6 +8,8 @@ const tag = document.querySelector('#result-tag');
 const retry = document.querySelector('#retry-button');
 const retrySection = document.querySelector('#retry-section');
 const recommendation = document.querySelector('#recommendation');
+const loadingPanel = document.querySelector('#loading-panel');
+const reasonContent = document.querySelector('#reason-content');
 const fields = ['length_cm', 'shoulder_cm', 'chest_width_cm', 'sleeve_cm'];
 const fieldLabels = ['총장', '어깨너비', '가슴단면', '소매길이'];
 let comparison = null;
@@ -37,15 +39,31 @@ function setBusy(value) {
   document.querySelectorAll('input, button, select').forEach(el => el.disabled = value);
 }
 function showError(message) { errorBox.textContent = message; errorBox.hidden = false; }
-function showView(result) {
-  document.querySelector('#input-panel').hidden = result;
-  document.querySelector('#compare-intro').hidden = result;
-  panel.hidden = !result;
+function showView(view) {
+  document.querySelector('#input-panel').hidden = view !== 'input';
+  document.querySelector('#compare-intro').hidden = view !== 'input';
+  loadingPanel.hidden = view !== 'loading';
+  panel.hidden = view !== 'result';
+}
+function showLoading(stage) {
+  showView('loading');
+  document.querySelector('#loading-title').textContent = stage === 'collect' ? '옷을 살펴보는 중' : '핏을 찾는 중';
+  document.querySelector('#loading-message').textContent = stage === 'collect' ? '상품 정보 확인 중' : '치수 · 소재 · 신축성 비교 중';
+  for (const name of ['collect', 'fit']) {
+    const step = document.querySelector(`#step-${name}`);
+    if (name === stage) step.setAttribute('aria-current', 'step');
+    else step.removeAttribute('aria-current');
+    step.classList.toggle('complete', name === 'collect' && stage === 'fit');
+  }
+}
+function revealResult() {
+  showView('result');
+  document.querySelector('#result-title').focus();
 }
 async function api(path, body) {
   const response = await fetch(path, {method: 'POST', headers: {
     'Content-Type': 'application/json', 'X-Page-Token': document.querySelector('meta[name="page-token"]').content
-  }, body: JSON.stringify(body)});
+  }, body: JSON.stringify(body), signal: AbortSignal.timeout(120000)});
   const data = await response.json();
   if (response.status === 429 && data.retry_after) blockedUntil = Date.now() + data.retry_after * 1000;
   if (!response.ok) throw new Error(data.error || '요청을 처리하지 못했어요.');
@@ -54,7 +72,7 @@ async function api(path, body) {
 function showRecommendation(title, description, size) {
   recommendation.replaceChildren(element('h3', title));
   if (size) recommendation.append(element('div', size, 'size'));
-  recommendation.append(element('p', description));
+  reasonContent.replaceChildren(element('p', description));
 }
 function renderFitSummary(size) {
   const summary = document.querySelector('#fit-summary');
@@ -67,7 +85,8 @@ function renderFitSummary(size) {
     p.prepend(element('small', fieldLabels[index])); summary.append(p);
   });
   const stretch = element('p', comparison.target.stretch ?? '미확인');
-  stretch.prepend(element('small', '신축성 · 판매자 표기')); summary.append(stretch);
+  stretch.prepend(element('small', '신축성')); stretch.classList.add('stretch-chip'); summary.append(stretch);
+  document.querySelector('.summary-caption').hidden = !row;
   summary.hidden = false;
 }
 function renderComparison(data) {
@@ -76,7 +95,7 @@ function renderComparison(data) {
   document.querySelector('#wash-details').hidden = true;
   const product = data.target;
   const box = element('div', undefined, 'product');
-  box.append(element('small', '비교한 상품'), sourceLink(product.product_name, product.source_url));
+  box.append(sourceLink(product.product_name, product.source_url));
   document.querySelector('#products').replaceChildren(box);
   const material = document.querySelector('#material-details');
   material.replaceChildren(
@@ -86,7 +105,7 @@ function renderComparison(data) {
     sourceLink('상품 정보 원문', product.material_source_url || product.source_url)
   );
   const reviews = document.querySelector('#review-details'); reviews.replaceChildren();
-  document.querySelector('#reviews-title').textContent = `구매자 후기 · ${product.reviews?.length || 0}개`;
+  document.querySelector('#reviews-title').textContent = `후기 · ${product.reviews?.length || 0}`;
   for (const review of product.reviews || []) {
     reviews.append(element('p', review.content),
       element('p', `${review.created_at} · 별점 ${review.rating ?? '미제공'} · 구매 옵션 ${review.purchased_option ?? '미제공'}`, 'hint'),
@@ -110,22 +129,20 @@ function renderComparison(data) {
     });
     rows.append(tr);
   }
-  tag.textContent = '실측 비교 완료';
-  showRecommendation('치수 비교가 준비됐어요', '사이즈별 치수표에서 내 옷과의 차이를 확인해 보세요.');
+  tag.textContent = '실측 비교';
+  const count = data.sizes.filter(row => row.status === 'ok').length;
+  showRecommendation('비교 가능한 사이즈', '실측표에서 기준 옷과의 차이를 확인하세요. AI 추천은 아래에서 추가할 수 있어요.', `${count}개`);
   renderFitSummary(); retrySection.hidden = false;
-  showView(true);
-  document.querySelector('#result-title').focus();
 }
 async function requestRecommendation(input = keyInput) {
   if (!input.value.trim()) { showError('AI 추천을 받으려면 API 키를 입력해 주세요.'); input.focus(); return; }
   const apiKey = input.value.trim(); input.value = '';
-  statusBox.textContent = '치수, 소재, 신축성을 비교하고 있어요…';
+  showLoading('fit');
   tag.textContent = 'AI 추천 중';
   retrySection.open = false;
   document.querySelector('#wash-details').hidden = true;
   renderFitSummary();
   document.querySelectorAll('#size-rows tr').forEach(row => row.classList.remove('selected-row'));
-  showRecommendation('나에게 가까운 사이즈를 찾고 있어요', '기다리는 동안 수집된 치수와 상품 정보를 확인할 수 있어요.');
   try {
     const result = await api('/api/recommend', {comparison_id: comparison.comparison_id, api_key: apiKey});
     if (result.ok) {
@@ -145,15 +162,17 @@ async function requestRecommendation(input = keyInput) {
       document.querySelectorAll('#size-rows tr').forEach(row => row.classList.toggle('selected-row', row.dataset.size === result.recommended_size));
       tag.textContent = '추천 완료';
     } else {
-      showRecommendation('확실한 사이즈를 고르기 어려워요', result.message); tag.textContent = '추천 보류';
+      showRecommendation('추천 보류', result.message, '—'); tag.textContent = '확인 필요';
+      document.querySelector('#reason-details').open = true;
       document.querySelector('#measurements-detail').open = true;
     }
-    if (result.limitations) recommendation.append(element('small', result.limitations));
+    if (result.limitations) reasonContent.append(element('p', result.limitations, 'hint'));
     statusBox.textContent = '';
   } catch (error) {
-    showRecommendation('치수 비교는 완료했어요', 'AI 추천에 연결하지 못했어요. 아래에서 API 키를 다시 입력하고 재시도할 수 있어요.');
-    showError(error.message); tag.textContent = 'AI 추천 실패'; statusBox.textContent = '';
+    showRecommendation('추천 연결 실패', '수집한 치수는 유지됩니다. API 키를 다시 입력해 재시도하세요.', '—');
+    showError(error.name === 'TimeoutError' ? '응답이 늦어지고 있어요. 잠시 후 재시도해 주세요.' : error.message); tag.textContent = '실측 비교 가능'; statusBox.textContent = '';
     retrySection.open = true;
+    document.querySelector('#measurements-detail').open = true;
   }
 }
 async function submit(withAI) {
@@ -164,26 +183,32 @@ async function submit(withAI) {
   const body = Object.fromEntries(new FormData(form)); delete body.api_key;
   body.profile_index = 0;
   setBusy(true); comparison = null;
-  statusBox.textContent = '새 상품의 사이즈표, 소재, 신축성, 후기를 가져오고 있어요…';
+  showLoading('collect');
+  document.querySelector('#loading-title').focus();
   try {
     comparison = await api('/api/compare', body); renderComparison(comparison);
     if (withAI) await requestRecommendation();
     else { document.querySelector('#measurements-detail').open = true; keyInput.value = ''; statusBox.textContent = ''; }
+    revealResult();
   } catch (error) {
-    keyInput.value = ''; showError(error.message); statusBox.textContent = '';
-  } finally { setBusy(false); }
+    keyInput.value = ''; showView('input');
+    showError(error.name === 'TimeoutError' ? '응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.' : error.message); statusBox.textContent = '';
+  } finally {
+    setBusy(false);
+    if (!comparison) document.querySelector('#target-url').focus();
+  }
 }
-form.addEventListener('submit', event => { event.preventDefault(); submit(true); });
-document.querySelector('#compare-button').addEventListener('click', () => submit(false));
+form.addEventListener('submit', event => { event.preventDefault(); submit(Boolean(keyInput.value.trim())); });
 retry.addEventListener('click', async () => {
   if (busy || !comparison) return;
   if (!retryKey.value.trim()) { showError('API 키를 입력한 뒤 다시 눌러 주세요.'); retryKey.focus(); return; }
   errorBox.hidden = true; setBusy(true);
-  try { await requestRecommendation(retryKey); } finally { setBusy(false); }
+  showLoading('fit'); document.querySelector('#loading-title').focus();
+  try { await requestRecommendation(retryKey); } finally { setBusy(false); revealResult(); }
 });
 document.querySelector('#edit-comparison').addEventListener('click', () => {
   if (busy) return;
-  retryKey.value = ''; errorBox.hidden = true; statusBox.textContent = ''; showView(false);
+  retryKey.value = ''; errorBox.hidden = true; statusBox.textContent = ''; showView('input');
   document.querySelector('#target-url').focus();
 });
 form.addEventListener('input', event => {
