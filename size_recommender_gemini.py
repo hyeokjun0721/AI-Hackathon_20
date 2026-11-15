@@ -169,19 +169,53 @@ def _read_product_resource(url, source_url):
         raise RuntimeError('상품 응답의 문자 인코딩을 읽지 못했습니다.') from None
 
 
-def parse_musinsa_product(page_html, size_response, product_id):
-    """응답 구조가 바뀌거나 실측표가 없으면 추측하거나 예시 치수로 대체하지 않습니다."""
+def parse_musinsa_detail(page_html, product_id):
     parser = ProductPageParser()
     parser.feed(page_html)
+    page = json.loads(''.join(parser.chunks))['props']['pageProps']
+    detail = next(
+        q['state']['data']['data']
+        for q in page['dehydratedState']['queries']
+        if q.get('queryKey') == ['Detail', int(product_id)]
+    )
+    if str(detail['goodsNo']) != product_id or not detail.get('goodsNm'):
+        raise ValueError('상품 상세의 상품 번호 또는 이름을 확인할 수 없습니다.')
+    return detail
+
+
+def parse_stretch(detail):
+    material = detail.get('goodsMaterial')
+    groups = material.get('materials') if isinstance(material, dict) else None
+    if not isinstance(groups, list):
+        return None
+    selected = []
+    for group in groups:
+        if not isinstance(group, dict) or group.get('name') != '신축성':
+            continue
+        items = group.get('items')
+        if isinstance(items, list):
+            selected.extend(item.get('name') for item in items
+                            if isinstance(item, dict) and item.get('isSelected') is True)
+    if len(selected) == 1 and selected[0] in ('없음', '거의 없음', '보통', '약간 있음', '있음'):
+        return selected[0]
+    return None
+
+
+def fetch_product_stretch(url):
+    """신축성 필드가 없던 기존 프로필에는 상품 상세만 다시 조회합니다."""
+    product_id = musinsa_product_id(url)
+    source_url = f'https://www.musinsa.com/products/{product_id}'
     try:
-        page = json.loads(''.join(parser.chunks))['props']['pageProps']
-        detail = next(
-            q['state']['data']['data']
-            for q in page['dehydratedState']['queries']
-            if q.get('queryKey') == ['Detail', int(product_id)]
-        )
-        if str(detail['goodsNo']) != product_id or not detail.get('goodsNm'):
-            raise ValueError()
+        detail = parse_musinsa_detail(read_product_resource(source_url, source_url), product_id)
+    except (RuntimeError, ValueError, KeyError, TypeError, StopIteration, AttributeError):
+        return None
+    return parse_stretch(detail)
+
+
+def parse_musinsa_product(page_html, size_response, product_id):
+    """응답 구조가 바뀌거나 실측표가 없으면 추측하거나 예시 치수로 대체하지 않습니다."""
+    try:
+        detail = parse_musinsa_detail(page_html, product_id)
         if size_response['meta']['result'] != 'SUCCESS':
             raise ValueError()
         size_data = size_response['data']
@@ -223,6 +257,7 @@ def parse_musinsa_product(page_html, size_response, product_id):
             'listed_price': price.get('salePrice'),
             'currency': price.get('currency', 'KRW'),
             'description': detail.get('mdOpinion') or '',
+            'stretch': parse_stretch(detail),
             'measurement_note': size_data.get('description') or '',
             'raw_sizes': raw_sizes,
         }
@@ -311,6 +346,7 @@ def show_product(product, normalized):
     print('브랜드:', product.get('brand') or '미제공')
     print('출처:', product['source_url'])
     print('재질:', product.get('material') or ('수집 실패' if product.get('material_status') == 'error' else '미제공'))
+    print('신축성:', product.get('stretch') or '미확인')
     for review in product.get('reviews', []):
         print('\n최신 사용자 후기 (1개):', review['created_at'])
         print('별점:', review['rating'], '/ 구매 옵션:', review['purchased_option'])
@@ -509,7 +545,27 @@ def diagnose_generation(model, api_key):
         return '짧은 요청에서 JSON이 아닌 응답을 받았습니다. 중간 네트워크나 API 응답을 확인해야 합니다.'
 
 
-def recommend_size(user_ref, normalized_sizes, api_key):
+def cotton_tee_shrinkage_scenarios(product, measurements):
+    """상품별 시험값이 없을 때 면 티셔츠의 치수 민감도를 비교합니다."""
+    material = product.get('material') or ''
+    name = product.get('product_name') or ''
+    if not re.fullmatch(r'\s*(?:(?:겉감|본체)\s*[:：]\s*)?'
+                        r'(?:(?:면|cotton)\s*100\s*%|100\s*%\s*(?:면|cotton))\s*',
+                        material, re.IGNORECASE):
+        return {}
+    if not re.search(r'티\s*셔츠|(?:반팔|긴팔)\s*티(?![가-힣])|\bt[ -]?shirts?\b|\btees?\b',
+                     name, re.IGNORECASE):
+        return {}
+    return {
+        percent: {
+            field: round(value * (100 - percent) / 100, 1)
+            for field, value in measurements.items() if value is not None
+        }
+        for percent in (3, 5)
+    }
+
+
+def recommend_size(user_ref, normalized_sizes, api_key, target_product=None):
     """추천 결정은 Gemini가 수행합니다. API 실패 시 계산식 추천으로 대체하지 않습니다."""
     available = {
         size: entry['measurements']
@@ -522,6 +578,11 @@ def recommend_size(user_ref, normalized_sizes, api_key):
     if not available:
         return {'ok': False, 'message': '검수를 통과한 사이즈가 없습니다.', 'excluded': excluded}
 
+    target_product = target_product or {}
+    wash_scenarios = {
+        size: scenarios for size, measurements in available.items()
+        if (scenarios := cotton_tee_shrinkage_scenarios(target_product, measurements))
+    }
     model = select_model(api_key)
     print('사용 모델:', model)
 
@@ -541,6 +602,15 @@ def recommend_size(user_ref, normalized_sizes, api_key):
         '사이즈 하나를 고르세요. 적합한 후보가 없거나 근거가 부족하면 추천 불가를 선택하세요. '
         '임의의 고정 여유분이나 고정 차이 합산 공식을 적용하지 마세요. '
         '소재, 신축성, 체형, 실제 착용 결과 등 제공되지 않은 정보를 지어내지 마세요. '
+        '기준 옷과 새 옷의 표기 소재를 고려하되 혼용률만으로 신축성이나 세탁 결과를 단정하지 마세요. '
+        'stretch는 쇼핑몰의 정성적 신축성 표기입니다. 두 옷의 표기를 실측과 함께 고려하여 '
+        '같은 치수 차이라도 새 옷이 덜 늘어나면 움직일 때 더 타이트할 가능성을 평가하세요. '
+        '신축성이 판단에 영향을 주면 reason에 설명하세요. 신축성으로 실측을 보정하거나 수축률을 추정하지 마세요. '
+        'null인 신축성은 미확인이며 신축성 없음으로 해석하지 마세요. '
+        'wash_scenarios_cm가 있으면 세탁 전 실측과 각 가정에서의 치수를 기준 옷과 함께 비교하세요. '
+        '시나리오의 키 3과 5는 각 부위에 가정한 수축률(%)입니다. 실제 상품 수축률이나 상한이 아닙니다. '
+        '수축 가정에서 달라지는 핏과 세탁 전 핏의 균형을 설명하세요. 자동으로 한 사이즈 올리지 마세요. '
+        '시나리오가 없으면 수축률을 지어내지 마세요. 기준 옷에는 수축률을 적용하지 마세요. '
         'reason에 선택 이유를 설명하고 limitations에 실제 착용을 확인하지 못한 한계를 적으세요. '
         '기본 목표는 잘 맞았던 기준 옷과 비슷한 착용감입니다. '
         'reason에 판단에 중요한 실제 부위별 차이를 설명하세요. 추천 불가일 때도 이유를 구체적으로 쓰세요. '
@@ -555,8 +625,16 @@ def recommend_size(user_ref, normalized_sizes, api_key):
                 'measurements': user_ref['measurements'],
                 'desired_fit': user_ref.get('desired_fit'),
                 'fit_satisfaction': user_ref.get('fit_satisfaction'),
+                'material': user_ref.get('material'),
+                'stretch': user_ref.get('stretch'),
+            },
+            'target_clothes': {
+                'product_name': target_product.get('product_name'),
+                'material': target_product.get('material'),
+                'stretch': target_product.get('stretch'),
             },
             'available_sizes': available,
+            'wash_scenarios_cm': wash_scenarios,
         }, ensure_ascii=False)}]}],
         'generationConfig': {
             **generation_config(model),
@@ -619,6 +697,7 @@ def recommend_size(user_ref, normalized_sizes, api_key):
     return {
         'ok': True, 'recommended_size': size, 'reason': answer['reason'],
         'limitations': answer['limitations'], 'diff_details': differences,
+        'wash_scenarios_cm': wash_scenarios.get(size, {}),
         'excluded': excluded, 'model': model,
     }
 
@@ -640,6 +719,8 @@ def build_reference_clothes(product, purchased_size, desired_fit='기준 옷과 
         'product_name': product['product_name'],
         'purchased_size': size,
         'fit_satisfaction': '잘 맞음',
+        'material': product.get('material'),
+        'stretch': product.get('stretch'),
         'desired_fit': desired_fit,
         'measurements': dict(entry['measurements']),
     }
@@ -724,7 +805,7 @@ def main(argv=None):
         if not api_key:
             raise ValueError('API 키가 필요합니다.')
         print('\nGemini에 추천 요청 중...', flush=True)
-        result = recommend_size(user_ref, normalized, api_key)
+        result = recommend_size(user_ref, normalized, api_key, product)
     except (RuntimeError, ValueError, EOFError) as exc:
         print(f'진행 중단: {exc}')
         return 1
@@ -738,6 +819,9 @@ def main(argv=None):
         print('잘 맞았던 옷 대비 차이:')
         for field, difference in result['diff_details'].items():
             print(f'  {FIELD_NAMES[field]}: {difference}')
+        for percent, measurements in result.get('wash_scenarios_cm', {}).items():
+            values = ', '.join(f'{FIELD_NAMES[field]} {value:.1f}cm' for field, value in measurements.items())
+            print(f'  {percent}% 수축 가정 (세탁 후 실측 아님): {values}')
     else:
         print('\n추천 불가:', result['message'])
     if result.get('limitations'):
