@@ -1,0 +1,245 @@
+import re
+from datetime import datetime
+
+FIELD_NAMES = {
+    "shoulder_cm": "어깨너비",
+    "length_cm": "총장",
+    "chest_width_cm": "가슴단면",
+    "sleeve_cm": "소매길이",
+}
+REQUIRED_FIELDS = ["shoulder_cm", "length_cm", "chest_width_cm"]
+OPTIONAL_FIELDS = ["sleeve_cm"]
+SCORE_FIELDS = REQUIRED_FIELDS
+
+# 아래 숫자는 임시값. 팀 테스트 결과를 보고 조정할 것
+TOLERANCE_CM = 3.0    # 한 부위라도 목표와 이만큼 넘게 다르면 '추천'에서 제외
+TIE_MARGIN_CM = 0.5   # 점수 차이가 이 안쪽이면 동점으로 보고 같이 보여줌
+PERFECT_CM = 1.0      # 모든 부위가 목표와 이 안쪽으로 다르면 '완벽'
+MAX_RESULTS = 2
+
+# 원하는 핏에 따라 기준 옷 치수에 더할 값(cm)
+FIT_OFFSET_CM = {
+    "기준 옷과 비슷한 핏": 0.0,
+    "정사이즈": 0.0,
+    "여유로운 핏": 1.0,
+    "슬림 핏": -1.0,
+}
+
+# 핏 지수 = (가슴 차이 + 어깨 차이) / 2. 쇼핑몰이 안내하는 측정 오차(약 2cm)를 기준으로 잡은 구간
+FIT_TAG_BOUNDS = [(-2.0, "타이트함"), (2.0, "정핏"), (5.0, "세미 오버핏")]
+LAST_FIT_TAG = "빅 오버핏"
+
+VALID_RANGE_CM = {
+    "shoulder_cm": (20.0, 80.0),
+    "length_cm": (30.0, 120.0),
+    "chest_width_cm": (30.0, 90.0),
+    "sleeve_cm": (5.0, 40.0),
+}
+MISSING_MARKERS = {"", "-", "미제공", "none"}
+MEASURE_NOTE = "쇼핑몰 안내 기준 약 2cm의 측정 오차가 있을 수 있어 참고용으로 봐주세요."
+GRADE_TITLES = {
+    "완벽": "[완벽] 기준 옷과 거의 같아요",
+    "잘 맞음": "[잘 맞음] 추천 사이즈",
+    "두 사이즈 추천": "[두 사이즈 추천] 두 사이즈 모두 가능해요. 부위별 차이를 비교해 보세요",
+}
+
+
+def parse_measurement(field, raw_value):
+    name = FIELD_NAMES[field]
+    text = str(raw_value).strip()
+
+    if text.lower() in MISSING_MARKERS:
+        raise ValueError(f"{name} 누락")
+
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if match is None:
+        raise ValueError(f"{name} 숫자를 읽을 수 없음: '{text}'")
+    value = float(match.group())
+
+    if "mm" in text.lower():
+        value /= 10.0
+    if field == "chest_width_cm" and "둘레" in text:
+        value /= 2.0
+
+    low, high = VALID_RANGE_CM[field]
+    if not low <= value <= high:
+        raise ValueError(f"{name} 값({value:.1f}cm)이 상식 범위({low:.0f}~{high:.0f}cm) 밖")
+    return round(value, 1)
+
+
+def normalize_sizes(raw_sizes):
+    today = datetime.now().strftime("%Y-%m-%d")
+    result = {}
+    for size_name, raw in raw_sizes.items():
+        entry = {"status": "ok", "reason": "", "checked_at": today, "measurements": {}}
+        try:
+            for field in REQUIRED_FIELDS:
+                entry["measurements"][field] = parse_measurement(field, raw.get(field))
+        except ValueError as e:
+            entry["status"] = "needs_review"
+            entry["reason"] = str(e)
+            entry["measurements"] = {}
+        else:
+            for field in OPTIONAL_FIELDS:
+                try:
+                    entry["measurements"][field] = parse_measurement(field, raw.get(field))
+                except ValueError:
+                    entry["measurements"][field] = None
+        result[size_name] = entry
+    return result
+
+
+def _measure_key(entry):
+    return tuple(sorted(entry["measurements"].items()))
+
+
+def merge_duplicate_rows(sizes):
+    """치수가 완전히 같은 행(색상만 다른 경우 등)을 '화이트S/블랙S'처럼 하나로 합친다."""
+    names_by_key = {}
+    for name, entry in sizes.items():
+        if entry["status"] == "ok":
+            names_by_key.setdefault(_measure_key(entry), []).append(name)
+
+    merged = {}
+    for name, entry in sizes.items():
+        if entry["status"] != "ok":
+            merged[name] = entry
+            continue
+        names = names_by_key[_measure_key(entry)]
+        if name == names[0]:
+            merged["/".join(names)] = entry
+    return merged
+
+
+def fit_index(diffs):
+    return (diffs["chest_width_cm"] + diffs["shoulder_cm"]) / 2
+
+
+def classify_fit_tag(index):
+    for limit, tag in FIT_TAG_BOUNDS:
+        if index < limit:
+            return tag
+    return LAST_FIT_TAG
+
+
+def recommend_size(user_ref, normalized_sizes):
+    sizes = merge_duplicate_rows(normalized_sizes)
+    mine = user_ref["measurements"]
+    offset = FIT_OFFSET_CM.get(user_ref.get("desired_fit"), 0.0)
+    target = {f: mine[f] + offset for f in SCORE_FIELDS}
+
+    rows, excluded = [], {}
+    for name, entry in sizes.items():
+        if entry["status"] != "ok":
+            excluded[name] = entry["reason"]
+            continue
+        m = entry["measurements"]
+        gaps = [abs(m[f] - target[f]) for f in SCORE_FIELDS]
+        diffs = {
+            f: round(m[f] - mine[f], 1)
+            for f in SCORE_FIELDS + OPTIONAL_FIELDS
+            if m.get(f) is not None and mine.get(f) is not None
+        }
+        index = fit_index(diffs)
+        rows.append({
+            "size": name,
+            "score": round(sum(gaps), 1),
+            "max_gap": round(max(gaps), 1),
+            "within_tolerance": max(gaps) <= TOLERANCE_CM + 1e-9,
+            "diffs": diffs,
+            "fit_index": round(index, 1),
+            "fit_tag": classify_fit_tag(index),
+        })
+
+    if not rows:
+        return {
+            "ok": False,
+            "mode": "none",
+            "grade": "추천 불가",
+            "message": "비교할 수 있는 사이즈가 없어요. 사이즈표를 직접 입력해 주세요.",
+            "recommendations": [],
+            "all_sizes": [],
+            "excluded": excluded,
+        }
+
+    rows.sort(key=lambda r: r["score"])
+    best = rows[0]
+
+    if best["within_tolerance"]:
+        picks = [
+            r for r in rows
+            if r["within_tolerance"] and r["score"] - best["score"] <= TIE_MARGIN_CM + 1e-9
+        ][:MAX_RESULTS]
+        if len(picks) > 1:
+            grade = "두 사이즈 추천"
+        elif best["max_gap"] <= PERFECT_CM + 1e-9:
+            grade = "완벽"
+        else:
+            grade = "잘 맞음"
+        return {
+            "ok": True,
+            "mode": "recommend",
+            "grade": grade,
+            "is_tie": len(picks) > 1,
+            "recommendations": picks,
+            "all_sizes": rows,
+            "excluded": excluded,
+        }
+
+    return {
+        "ok": True,
+        "mode": "fit_report",
+        "grade": "추천 불가",
+        "is_tie": False,
+        "message": "기준 옷과 비슷하다고 보기 어려워 가장 가까운 사이즈의 핏만 참고용으로 보여드려요.",
+        "recommendations": [best],
+        "all_sizes": rows,
+        "excluded": excluded,
+    }
+
+
+def describe_row(row):
+    parts = [f"{FIELD_NAMES[f]} {v:+.1f}cm" for f, v in row["diffs"].items()]
+    return f"{row['size']}: {row['fit_tag']} ({', '.join(parts)})"
+
+
+def format_result(result):
+    lines = []
+    if result["mode"] == "none":
+        lines.append(f"[추천 불가] {result['message']}")
+    else:
+        if result["mode"] == "recommend":
+            lines.append(GRADE_TITLES[result["grade"]])
+        else:
+            lines.append(f"[추천 불가] {result['message']}")
+        lines += ["  " + describe_row(r) for r in result["recommendations"]]
+        others = [r for r in result["all_sizes"] if r not in result["recommendations"]]
+        if others:
+            lines.append("다른 사이즈: " + " / ".join(f"{r['size']} {r['fit_tag']}" for r in others))
+    if result["excluded"]:
+        lines.append("비교 못 한 사이즈: " + ", ".join(f"{k}({v})" for k, v in result["excluded"].items()))
+    lines.append(MEASURE_NOTE)
+    return "\n".join(lines)
+
+
+# 데모용 가상 데이터
+user_reference_clothes = {
+    "reference_url": "https://www.musinsa.com/products/1032469",
+    "purchased_size": "M",
+    "desired_fit": "여유로운 핏",
+    "measurements": {"length_cm": 70.0, "shoulder_cm": 45.0, "chest_width_cm": 52.0, "sleeve_cm": 23.0},
+}
+
+raw_extracted_data = {
+    "source_url": "https://www.musinsa.com/products/1032469",
+    "raw_sizes": {
+        "S": {"length_cm": "69cm", "shoulder_cm": "440mm", "chest_width_cm": "가슴둘레 104cm", "sleeve_cm": "24cm"},
+        "M": {"length_cm": "71cm", "shoulder_cm": "46cm", "chest_width_cm": "54cm", "sleeve_cm": "25cm"},
+        "L": {"length_cm": "73cm", "shoulder_cm": "48cm", "chest_width_cm": "-", "sleeve_cm": "26cm"},
+    },
+}
+
+
+if __name__ == "__main__":
+    clean = normalize_sizes(raw_extracted_data["raw_sizes"])
+    print(format_result(recommend_size(user_reference_clothes, clean)))
