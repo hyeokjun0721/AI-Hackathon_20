@@ -509,7 +509,7 @@ def diagnose_generation(model, api_key):
         return '짧은 요청에서 JSON이 아닌 응답을 받았습니다. 중간 네트워크나 API 응답을 확인해야 합니다.'
 
 
-def recommend_size(user_ref, normalized_sizes, api_key):
+def recommend_size(user_ref, normalized_sizes, api_key, target_product=None):
     """추천 결정은 Gemini가 수행합니다. API 실패 시 계산식 추천으로 대체하지 않습니다."""
     available = {
         size: entry['measurements']
