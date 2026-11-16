@@ -1,0 +1,50 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 티셔츠 3D 미리보기</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/tryon.css"><script type="module" src="/tryon.js"></script></head>
+<body><header class="top"><a class="brand" href="/">핏노트<span class="brand-dot"></span></a><nav class="nav"><a href="/">내 옷 등록</a><a href="/compare">사이즈 비교</a><a href="/tryon">3D 미리보기</a></nav></header><main class="tryon">
+<section class="intro"><p class="eyebrow">3D 미리보기</p><h1>티셔츠 사진 한 장을,<br>움직이는 3D 옷으로.</h1><p class="lead">흰 배경에서 찍은 티셔츠 정면 사진을 올리면 누끼를 따서 천 시뮬레이션 모델에 입혀요. 마네킹 체형과 옷 사이즈를 바꿔 핏을 확인해 보세요.</p><span class="support">정면 평면 사진 · 앞면 디자인 지원</span></section>
+<div class="tryon-layout">
+<section class="input-panel" aria-labelledby="t-title"><h2 id="t-title" class="sr-only">사진과 옵션</h2>
+<fieldset><legend><span class="number">01</span>티셔츠 사진</legend>
+<label id="drop" class="drop" for="file">사진을 끌어다 놓거나 눌러서 선택<small>JPG · PNG · WEBP, 15MB 이하</small></label><input id="file" class="file-input" type="file" accept="image/*">
+<div class="url-box"><label for="tee-url">무신사 상품 링크로 가져오기 <span class="optional">선택</span></label>
+<div class="url-row"><input id="tee-url" type="url" inputmode="url" autocomplete="off" maxlength="2048" spellcheck="false" placeholder="https://www.musinsa.com/products/…"><button id="url-run" type="button" class="secondary small">가져오기</button></div>
+<p class="hint">상품 페이지의 사진들 중 3D에 맞는 정면 사진을 AI가 골라요. 06 단계의 Gemini API 키가 필요해요.</p>
+<p id="url-status" class="status" role="status" aria-live="polite"></p><div id="url-alts" class="url-alts" hidden></div></div>
+<div class="cutout-wrap"><canvas id="cutout" class="cutout" width="2" height="2"></canvas><span id="swatch" class="swatch" title="기본색"></span></div>
+<p id="status" class="status" role="status" aria-live="polite">사진을 올리면 누끼가 여기에 표시돼요.</p><p id="error" class="error" role="alert" hidden></p>
+<label for="tol">배경 제거 민감도 <output class="hint">낮음 ↔ 높음</output></label><input id="tol" type="range" min="8" max="70" value="30">
+<label for="flat">그림자·주름 제거</label><input id="flat" type="range" min="0" max="100" value="60"></fieldset>
+<fieldset><legend><span class="number">02</span>디자인 위치·크기</legend>
+<label for="adj-scale">크기</label><input id="adj-scale" type="range" min="60" max="160" value="100">
+<label for="adj-x">좌우</label><input id="adj-x" type="range" min="-25" max="25" value="0">
+<label for="adj-y">상하</label><input id="adj-y" type="range" min="-25" max="25" value="0">
+<button id="adj-reset" type="button" class="secondary small">자동 맞춤으로 되돌리기</button></fieldset>
+<fieldset><legend><span class="number">03</span>마네킹 체형</legend>
+<div class="btn-row c3"><button type="button" class="secondary small" data-body="slim">슬림</button><button type="button" class="secondary small" data-body="regular">표준</button><button type="button" class="secondary small" data-body="broad">건장</button></div>
+<label for="b-shoulder">어깨너비 <output id="o-b-shoulder">44 cm</output></label><input id="b-shoulder" type="range" min="36" max="54" step="0.5" value="44">
+<label for="b-chest">가슴둘레 <output id="o-b-chest">94 cm</output></label><input id="b-chest" type="range" min="76" max="124" step="1" value="94">
+<label for="b-waist">허리둘레 <output id="o-b-waist">80 cm</output></label><input id="b-waist" type="range" min="60" max="116" step="1" value="80">
+<label for="b-hip">엉덩이둘레 <output id="o-b-hip">96 cm</output></label><input id="b-hip" type="range" min="80" max="124" step="1" value="96">
+<p class="hint">키 175cm 기준 마네킹이에요. 옷은 바뀐 몸에 맞춰 바로 다시 입혀져요.</p>
+<button id="body-reset" type="button" class="secondary small">체형 초기화</button></fieldset>
+<fieldset><legend><span class="number">04</span>옷 사이즈</legend>
+<label for="t-size">전체 사이즈 <output id="o-t-size">M</output></label><input id="t-size" type="range" min="-2" max="3" step="0.1" value="0" list="size-ticks">
+<datalist id="size-ticks"><option value="-2" label="XS"></option><option value="-1" label="S"></option><option value="0" label="M"></option><option value="1" label="L"></option><option value="2" label="XL"></option><option value="3" label="XXL"></option></datalist>
+<div class="ticks" aria-hidden="true"><span>XS</span><span>S</span><span>M</span><span>L</span><span>XL</span><span>XXL</span></div>
+<details class="detail"><summary>세부 치수 직접 조정</summary>
+<label for="t-shoulder">어깨너비 <output id="o-t-shoulder">46 cm</output></label><input id="t-shoulder" type="range" min="36" max="58" step="0.5" value="46">
+<label for="t-chest">가슴단면 <output id="o-t-chest">52 cm</output></label><input id="t-chest" type="range" min="42" max="70" step="0.5" value="52">
+<label for="t-length">총장 <output id="o-t-length">70 cm</output></label><input id="t-length" type="range" min="52" max="90" step="0.5" value="70">
+<label for="t-sleeve">소매길이 <output id="o-t-sleeve">22 cm</output></label><input id="t-sleeve" type="range" min="8" max="40" step="0.5" value="22"></details>
+<p id="fit-note" class="fit-note" aria-live="polite"></p>
+<button id="tee-reset" type="button" class="secondary small">M 사이즈로 되돌리기</button></fieldset>
+<fieldset><legend><span class="number">05</span>옷감과 보기</legend>
+<label for="fabric">옷감</label><select id="fabric"><option value="cotton">면</option><option value="knit">니트</option><option value="denim">데님</option><option value="silk">실크</option></select>
+<div class="checks"><label class="check"><input id="wind" type="checkbox">바람</label><label class="check"><input id="spin" type="checkbox">자동 회전</label></div>
+<div class="btn-row"><button type="button" class="secondary small" data-view="front">앞</button><button type="button" class="secondary small" data-view="side">옆</button><button type="button" class="secondary small" data-view="back">뒤</button><button id="reset" type="button" class="secondary small">옷 다시 입히기</button></div></fieldset>
+<fieldset class="api-field"><legend><span class="number">06</span>AI 분석 <span class="optional">선택</span></legend>
+<label for="api-key">Gemini API 키</label><input id="api-key" type="password" autocomplete="off" maxlength="1024" spellcheck="false" placeholder="소재 추정·사진 검수를 받을 때만 입력">
+<p class="hint">사진은 작게 줄여 분석 요청에만 쓰이며, 키는 저장하지 않아요.</p>
+<button id="ai-run" type="button" class="secondary" disabled>AI로 사진 검수·소재 추정</button><p id="ai-result" class="ai-result" aria-live="polite"></p></fieldset>
+</section>
+<section class="viewer" aria-label="3D 미리보기"><div id="view" class="view"></div><p class="viewer-hint">빈 곳 드래그: 회전 · 휠: 확대 · 옷 드래그: 잡아당기기</p></section>
+</div><footer>FIT NOTE <span>사진으로 미리 입어 보는 옷.</span></footer></main></body></html>
