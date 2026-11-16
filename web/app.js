@@ -1,6 +1,4 @@
 const form = document.querySelector('#compare-form');
-const getKey = () => (window.getApiKey ? window.getApiKey() : '').trim();
-const topKey = () => document.querySelector('#top-api-key');
 const errorBox = document.querySelector('#error');
 const statusBox = document.querySelector('#status');
 const panel = document.querySelector('.result-panel');
@@ -69,7 +67,7 @@ function renderComparison(data) {
     rows.append(tr);
   }
   tag.textContent = '실측 비교 완료';
-  showRecommendation('치수 비교가 준비됐어요.', 'AI 추천을 받으려면 상단에 Gemini API 키를 저장해 주세요. 원하는 핏: ' + data.desired_fit);
+  showRecommendation('치수 비교가 준비됐어요.', '원하는 핏: ' + data.desired_fit);
   retry.hidden = false;
 }
 function renderReviews(product) {
@@ -82,7 +80,7 @@ function renderReviews(product) {
   reviewSummaryButton.textContent = 'AI 후기 요약받기';
   document.querySelector('#review-count').textContent = `최근 후기 ${reviews.length}개 원문 보기`;
   reviewSummary.textContent = reviews.length
-    ? `최근 후기 ${reviews.length}개를 가져왔어요. Gemini API 키로 요약할 수 있어요.`
+    ? `최근 후기 ${reviews.length}개를 가져왔어요. AI로 요약할 수 있어요.`
     : (product.reviews_status === 'error' ? '후기를 가져오지 못했어요.' : '요약할 구매 후기가 없어요.');
   for (const review of reviews) {
     const item = element('article', undefined, 'review-item');
@@ -95,12 +93,10 @@ function renderReviews(product) {
 }
 async function requestReviewSummary() {
   if (!comparison?.target.reviews?.length) return;
-  const apiKey = getKey();
-  if (!apiKey) { reviewSummary.textContent = '후기 요약을 받으려면 상단에 Gemini API 키를 저장해 주세요.'; topKey()?.focus(); return; }
   reviewSummary.textContent = '최근 구매 후기를 요약하고 있어요…';
   reviewSummaryButton.hidden = true;
   try {
-    const result = await api('/api/review-summary', {comparison_id: comparison.comparison_id, api_key: apiKey});
+    const result = await api('/api/review-summary', {comparison_id: comparison.comparison_id});
     reviewSummary.textContent = result.summary
       ? `최근 후기 ${result.review_count}개 기준 AI 요약\n${result.summary}`
       : '요약할 구매 후기가 없어요.';
@@ -111,13 +107,11 @@ async function requestReviewSummary() {
   }
 }
 async function requestRecommendation() {
-  const apiKey = getKey();
-  if (!apiKey) { showError('상단에 Gemini API 키를 입력하고 저장해 주세요. 키 없이 치수 비교만 할 수도 있어요.'); topKey()?.focus(); return; }
   statusBox.textContent = 'AI가 치수와 원하는 핏을 비교하고 있어요. 잠시 기다려 주세요.';
   tag.textContent = 'AI 추천 중'; retry.hidden = true;
   showRecommendation('내 옷과 가장 가까운 사이즈를 찾고 있어요.', '위 비교표는 이미 수집한 실제 치수입니다.');
   try {
-    const result = await api('/api/recommend', {comparison_id: comparison.comparison_id, api_key: apiKey});
+    const result = await api('/api/recommend', {comparison_id: comparison.comparison_id});
     if (result.ok) {
       showRecommendation('새 옷의 추천 사이즈', result.reason, result.recommended_size);
       document.querySelectorAll('#size-rows tr').forEach(row => row.classList.toggle('selected-row', row.dataset.size === result.recommended_size));
@@ -140,7 +134,6 @@ async function submit(withAI) {
     showError(`무신사 요청 제한 대기 중입니다. ${Math.ceil((blockedUntil - Date.now()) / 1000)}초 후 다시 시도해 주세요.`);
     return;
   }
-  if (withAI && !getKey()) { showError('AI 추천을 받으려면 상단에 API 키를 입력하고 저장해 주세요.'); topKey()?.focus(); return; }
   errorBox.hidden = true;
   const body = Object.fromEntries(new FormData(form));
   body.profile_index = 0; // 기존 기본 기준(첫 번째 저장한 옷)을 내부적으로 재사용합니다.
@@ -164,7 +157,6 @@ reviewSummaryButton.addEventListener('click', async () => {
 });
 retry.addEventListener('click', async () => {
   if (busy || !comparison) return;
-  if (!getKey()) { showError('상단에 API 키를 입력하고 저장한 뒤 다시 눌러 주세요.'); topKey()?.focus(); return; }
   errorBox.hidden = true; setBusy(true);
   try { await requestRecommendation(); } finally { setBusy(false); }
 });

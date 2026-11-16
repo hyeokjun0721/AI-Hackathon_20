@@ -811,16 +811,15 @@ function b64ToFile(b64, mime, name) {
 }
 $('#url-run').addEventListener('click', async () => {
   const status = $('#url-status'), alts = $('#url-alts'), btn = $('#url-run');
-  const url = $('#tee-url').value.trim(), key = (window.getApiKey?.() || '').trim();
+  const url = $('#tee-url').value.trim();
   alts.hidden = true; alts.replaceChildren();
   if (!url) { status.textContent = '무신사 상품 링크를 입력해 주세요.'; return; }
-  if (!key) { status.textContent = '상단에 Gemini API 키를 먼저 입력하고 저장해 주세요.'; return; }
   btn.disabled = true; status.textContent = '상품 사진을 찾고 AI가 고르는 중… (10~30초)';
   try {
     const resp = await fetch('/api/tee-find-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Page-Token': document.querySelector('meta[name="page-token"]').content },
-      body: JSON.stringify({ url, api_key: key }),
+      body: JSON.stringify({ url }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || '사진을 가져오지 못했어요.');

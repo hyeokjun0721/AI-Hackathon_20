@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="page-token" content="__CSRF_TOKEN__">
   <title>핏노트 — 내 옷으로 찾는 사이즈</title>
-  <link rel="stylesheet" href="/style.css"><script src="/apikey.js" defer></script><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="top"><a class="brand" href="/">핏노트<span class="brand-dot"></span></a><span class="tag">나에게 맞는 옷의 기준</span><a class="nav-3d" href="/tryon">3D 미리보기</a></header>
@@ -18,7 +18,7 @@
             <label for="target-url">상품 URL</label><input id="target-url" name="target_url" type="url" placeholder="https://www.musinsa.com/products/..." required maxlength="2048">
             <label for="desired-fit">원하는 핏</label><input id="desired-fit" name="desired_fit" value="기준 옷과 비슷한 핏" placeholder="예: 조금 더 여유로운 핏" required maxlength="160">
           </fieldset>
-          <div class="actions"><button class="primary" type="submit" id="recommend-button">내 사이즈 추천받기 <span aria-hidden="true">↗</span></button><button class="secondary" type="button" id="compare-button">키 없이 치수만 비교</button></div>
+          <div class="actions"><button class="primary" type="submit" id="recommend-button">내 사이즈 추천받기 <span aria-hidden="true">↗</span></button><button class="secondary" type="button" id="compare-button">치수만 비교</button></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
           <p id="error" class="error" role="alert" hidden></p>
         </form>

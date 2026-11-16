@@ -1,4 +1,4 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 티셔츠 3D 미리보기</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/tryon.css"><script src="/apikey.js" defer></script><script type="module" src="/tryon.js"></script></head>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 티셔츠 3D 미리보기</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/tryon.css"><script type="module" src="/tryon.js"></script></head>
 <body><header class="top"><a class="brand" href="/">핏노트<span class="brand-dot"></span></a><nav class="nav"><a href="/">내 옷 등록</a><a href="/compare">사이즈 비교</a><a href="/tryon">3D 미리보기</a></nav></header><main class="tryon">
 <section class="intro"><p class="eyebrow">3D 미리보기</p><h1>티셔츠 사진 한 장을,<br>움직이는 3D 옷으로.</h1><p class="lead">흰 배경에서 찍은 티셔츠 정면 사진을 올리면 3D 모델에 자동으로 적용해요. 마네킹 체형과 옷 사이즈를 바꿔 핏을 확인해 보세요.</p><span class="support">정면 평면 사진 · 앞면 디자인 지원</span></section>
 <div class="tryon-layout">
@@ -7,7 +7,7 @@
 <label id="drop" class="drop" for="file">사진을 끌어다 놓거나 눌러서 선택<small>JPG · PNG · WEBP, 15MB 이하</small></label><input id="file" class="file-input" type="file" accept="image/*">
 <div class="url-box"><label for="tee-url">무신사 상품 링크로 가져오기 <span class="optional">선택</span></label>
 <div class="url-row"><input id="tee-url" type="url" inputmode="url" autocomplete="off" maxlength="2048" spellcheck="false" placeholder="https://www.musinsa.com/products/…"><button id="url-run" type="button" class="secondary small">가져오기</button></div>
-<p class="hint">상품 페이지의 사진들 중 3D에 맞는 정면 사진을 AI가 골라요. 상단에 Gemini API 키를 저장해야 해요.</p>
+<p class="hint">상품 페이지의 사진들 중 3D에 맞는 정면 사진을 AI가 골라요.</p>
 <p id="url-status" class="status" role="status" aria-live="polite"></p><div id="url-alts" class="url-alts" hidden></div></div>
 <p id="status" class="status" role="status" aria-live="polite">사진을 올리면 3D 미리보기에 적용돼요.</p><p id="error" class="error" role="alert" hidden></p>
 </fieldset>

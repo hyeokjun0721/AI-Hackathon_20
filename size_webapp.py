@@ -220,9 +220,16 @@ def compare_products(data):
             'target': public_product(new), 'desired_fit': fit, 'sizes': rows}
 
 
+def gemini_api_key():
+    api_key = os.environ.get('GEMINI_API_KEY', '').strip()
+    if not api_key:
+        raise RuntimeError('현재 AI 기능을 사용할 수 없어요. 잠시 후 다시 시도해 주세요.')
+    return api_key
+
+
 def recommend_comparison(data):
     comparison_id = required_text(data, 'comparison_id', 100)
-    api_key = required_text(data, 'api_key', 1024)
+    api_key = gemini_api_key()
     with CACHE_LOCK:
         stored = CACHE.get(comparison_id)
         if stored is None or time.monotonic() - stored['created'] > CACHE_TTL:
@@ -236,7 +243,7 @@ def recommend_comparison(data):
 
 def summarize_comparison_reviews(data):
     comparison_id = required_text(data, 'comparison_id', 100)
-    api_key = required_text(data, 'api_key', 1024)
+    api_key = gemini_api_key()
     with CACHE_LOCK:
         stored = CACHE.get(comparison_id)
         if stored is None or time.monotonic() - stored['created'] > CACHE_TTL:
@@ -286,7 +293,7 @@ TEE_FABRICS = ['cotton', 'knit', 'denim', 'silk']
 
 def analyze_tee(data):
     """업로드한 티셔츠 사진을 Gemini로 검수하고 소재를 추정합니다. 키와 사진은 저장하지 않습니다."""
-    api_key = required_text(data, 'api_key', 1024)
+    api_key = gemini_api_key()
     encoded = required_text(data, 'image_base64', 380_000)
     try:
         image = base64.b64decode(encoded, validate=True)
@@ -534,7 +541,7 @@ def rank_tee_images(api_key, images):
 
 def find_tee_image(data):
     """무신사 상품 링크 → 이미지 후보 수집 → Gemini가 가장 적절한 티셔츠 사진 선택. 키와 사진은 저장하지 않습니다."""
-    api_key = required_text(data, 'api_key', 1024)
+    api_key = gemini_api_key()
     product_id = backend.musinsa_product_id(required_text(data, 'url'))
     source_url = f'https://www.musinsa.com/products/{product_id}'
     page = backend.read_product_resource(source_url, source_url)
@@ -597,7 +604,6 @@ class Handler(BaseHTTPRequestHandler):
         assets = {'/': ('index.html', 'text/html; charset=utf-8'),
                   '/compare': ('compare.html', 'text/html; charset=utf-8'),
                   '/onboarding.js': ('onboarding.js', 'text/javascript; charset=utf-8'),
-                  '/apikey.js': ('apikey.js', 'text/javascript; charset=utf-8'),
                   '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                   '/style.css': ('style.css', 'text/css; charset=utf-8'),
                   '/tryon': ('tryon.html', 'text/html; charset=utf-8'),

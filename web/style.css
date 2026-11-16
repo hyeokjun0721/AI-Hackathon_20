@@ -112,23 +112,6 @@ details summary{cursor:pointer;font-weight:600}
 @media(max-width:760px){.onboarding-grid{grid-template-columns:1fr}.onboarding-bottom{align-items:stretch;flex-direction:column}.onboarding-bottom button{width:100%}.preset-grid{grid-template-columns:1fr}}
 @media(max-width:680px){main{padding:0 18px}.top{padding:0 18px;min-height:56px;gap:14px}.brand{font-size:19px}.nav{gap:14px}.nav a,.nav-3d{font-size:12px}.intro{padding:30px 0 25px}.layout{grid-template-columns:1fr}.result-panel{min-height:390px}.empty-state{padding:55px 0}.top>.tag{font-size:10px}.table-intro{flex-direction:row}.intro h1{letter-spacing:-1px}footer{gap:15px}.result-panel{padding:20px 16px}}
 
-/* 상단 API 키 바 */
-.keybar{display:flex;align-items:center;gap:6px;margin:0;margin-left:auto}
-.top>.tag+.keybar,.keybar+.nav,.keybar+.nav-3d{margin-left:0}
-.top>.keybar:not(.tag+.keybar){margin-left:auto}
-.keybar label{font-size:12px;color:#9a9a9a;white-space:nowrap}
-.keybar input{width:170px;height:34px;padding:0 10px;border:1px solid #444;border-radius:4px;background:#1c1c1c;color:#fff;font-size:13px}
-.keybar input::placeholder{color:#777}
-.keybar input:focus-visible{outline:2px solid #fff;outline-offset:1px}
-.keybar button{height:34px;padding:0 12px;border-radius:4px;border:1px solid #fff;background:#fff;color:#111;font-size:13px;font-weight:700}
-.keybar .keybar-clear{background:transparent;color:#fff;border-color:#555}
-.keybar button[hidden]{display:none}
-.keybar-state{font-size:12px;color:#9a9a9a;white-space:nowrap}
-.keybar-state.on{color:#7fdc9a}
-.top>.keybar{order:0}
-@media(max-width:900px){.keybar label,.keybar-state{display:none}.keybar input{width:120px}}
-@media(max-width:680px){.top{flex-wrap:wrap;padding-top:8px;padding-bottom:8px}.keybar{width:100%;margin-left:0;order:5}.keybar input{flex:1;width:auto}}
-
 .reviews-section{margin-top:28px;padding-top:24px;border-top:1px solid var(--line)}
 #review-summary{white-space:pre-wrap;line-height:1.8}
 .reviews-section details{margin-top:16px}
