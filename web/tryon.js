@@ -69,6 +69,8 @@ camera.position.set(0, 2.45, 5.6);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.05, 0);
 controls.enableDamping = true;
+controls.minDistance = 1.6;
+controls.maxDistance = 12;
 controls.autoRotateSpeed = 2.0;
 controls.update();
 
