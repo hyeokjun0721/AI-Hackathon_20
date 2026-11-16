@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ko">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 내 옷장</title><link rel="stylesheet" href="/style.css"><script src="/onboarding.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="page-token" content="__CSRF_TOKEN__"><title>핏노트 — 내 옷장</title><link rel="stylesheet" href="/style.css"><script src="/apikey.js" defer></script><script src="/onboarding.js" defer></script></head>
 <body>
 <header class="top"><a class="brand" href="/">핏노트</a><span class="tag">MY WARDROBE</span><a class="nav-3d" href="/tryon">3D 미리보기</a></header>
 <main>
@@ -21,14 +21,14 @@
     <div class="onboarding-bottom"><p class="hint">무신사 상의 · 최소 1벌만 입력해도 시작할 수 있어요</p><button class="primary" id="save-profile" type="submit">입력한 URL로 시작 ↗</button></div>
 
     <!-- 방법 2: URL 입력이 번거로울 때 대표 브랜드 상품 실측표 선택 -->
-    <section class="input-panel" style="margin-top: 2rem;">
+    <section class="input-panel preset-panel">
       <p class="eyebrow">URL 찾기 번거로우신가요?</p>
-      <h2 style="font-size: 1.1rem; margin: 0.25rem 0;">대표 상품 실측표로 바로 시작하기</h2>
-      <p class="hint" style="margin-bottom: 1rem;">평소 입어본 대표 상품과 사이즈를 선택하면, 해당 상품의 실제 실측 치수(cm)가 기준 옷으로 등록됩니다.</p>
-      <div style="display: grid; gap: 0.75rem; grid-template-columns: 2fr 1fr auto; align-items: end;">
+      <h2 class="preset-title">대표 상품 실측표로 바로 시작하기</h2>
+      <p class="hint preset-hint">평소 입어본 대표 상품과 사이즈를 선택하면, 해당 상품의 실제 실측 치수(cm)가 기준 옷으로 등록됩니다.</p>
+      <div class="preset-grid">
         <div>
           <label for="preset-brand">대표 브랜드 상품</label>
-          <select id="preset-brand" style="width: 100%; padding: 0.6rem;">
+          <select id="preset-brand">
             <option value="uniqlo_u">유니클로 U 크루넥 반팔 티셔츠 (표준 정핏)</option>
             <option value="musinsa_relax">무신사 스탠다드 릴렉스 핏 크루넥 티 (세미오버)</option>
             <option value="nike_club">나이키 클럽 플리스 크루넥 맨투맨 (여유핏·시보리)</option>
@@ -36,7 +36,7 @@
         </div>
         <div>
           <label for="preset-size">입었던 사이즈</label>
-          <select id="preset-size" style="width: 100%; padding: 0.6rem;">
+          <select id="preset-size">
             <option value="S">S</option>
             <option value="M" selected>M</option>
             <option value="L">L</option>

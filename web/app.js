@@ -1,11 +1,14 @@
 const form = document.querySelector('#compare-form');
-const keyInput = document.querySelector('#api-key');
+const getKey = () => (window.getApiKey ? window.getApiKey() : '').trim();
+const topKey = () => document.querySelector('#top-api-key');
 const errorBox = document.querySelector('#error');
 const statusBox = document.querySelector('#status');
 const panel = document.querySelector('.result-panel');
 const tag = document.querySelector('#result-tag');
 const retry = document.querySelector('#retry-button');
 const recommendation = document.querySelector('#recommendation');
+const reviewSummary = document.querySelector('#review-summary');
+const reviewSummaryButton = document.querySelector('#review-summary-button');
 const fields = ['length_cm', 'shoulder_cm', 'chest_width_cm', 'sleeve_cm'];
 let comparison = null;
 let busy = false;
@@ -47,16 +50,9 @@ function renderComparison(data) {
     link.target = '_blank'; link.rel = 'noopener noreferrer';
     box.append(element('small', label), link);
     box.append(element('p', '재질: ' + (product.material || (product.material_status === 'error' ? '수집 실패' : '미제공'))));
-    box.append(element('small', '최신 사용자 후기 · 1개'));
-    for (const review of product.reviews || []) {
-      box.append(element('p', review.content));
-      box.append(element('small', `${review.created_at} · 별점 ${review.rating ?? '미제공'} · 구매 옵션 ${review.purchased_option ?? '미제공'}`));
-      const source = element('a', '후기 원문'); source.href = review.source_url;
-      source.target = '_blank'; source.rel = 'noopener noreferrer'; box.append(source);
-    }
-    if (!product.reviews?.length) box.append(element('p', product.reviews_status === 'error' ? '후기 수집 실패' : '등록된 후기 없음'));
     products.append(box);
   }
+  renderReviews(data.target);
   const rows = document.querySelector('#size-rows'); rows.replaceChildren();
   for (const item of data.sizes) {
     const tr = element('tr'); tr.dataset.size = item.size;
@@ -73,16 +69,53 @@ function renderComparison(data) {
     rows.append(tr);
   }
   tag.textContent = '실측 비교 완료';
-  showRecommendation('치수 비교가 준비됐어요.', 'AI 추천을 받으려면 Gemini API 키를 입력해 주세요. 원하는 핏: ' + data.desired_fit);
+  showRecommendation('치수 비교가 준비됐어요.', 'AI 추천을 받으려면 상단에 Gemini API 키를 저장해 주세요. 원하는 핏: ' + data.desired_fit);
   retry.hidden = false;
 }
+function renderReviews(product) {
+  const reviews = product.reviews || [];
+  const list = document.querySelector('#review-list'); list.replaceChildren();
+  const details = document.querySelector('#review-details');
+  details.open = false;
+  details.hidden = !reviews.length;
+  reviewSummaryButton.hidden = !reviews.length;
+  reviewSummaryButton.textContent = 'AI 후기 요약받기';
+  document.querySelector('#review-count').textContent = `최근 후기 ${reviews.length}개 원문 보기`;
+  reviewSummary.textContent = reviews.length
+    ? `최근 후기 ${reviews.length}개를 가져왔어요. Gemini API 키로 요약할 수 있어요.`
+    : (product.reviews_status === 'error' ? '후기를 가져오지 못했어요.' : '요약할 구매 후기가 없어요.');
+  for (const review of reviews) {
+    const item = element('article', undefined, 'review-item');
+    item.append(element('p', review.content));
+    item.append(element('small', `${review.created_at} · 별점 ${review.rating ?? '미제공'} · 구매 옵션 ${review.purchased_option ?? '미제공'}`));
+    const source = element('a', '후기 원문'); source.href = review.source_url;
+    source.target = '_blank'; source.rel = 'noopener noreferrer'; item.append(source);
+    list.append(item);
+  }
+}
+async function requestReviewSummary() {
+  if (!comparison?.target.reviews?.length) return;
+  const apiKey = getKey();
+  if (!apiKey) { reviewSummary.textContent = '후기 요약을 받으려면 상단에 Gemini API 키를 저장해 주세요.'; topKey()?.focus(); return; }
+  reviewSummary.textContent = '최근 구매 후기를 요약하고 있어요…';
+  reviewSummaryButton.hidden = true;
+  try {
+    const result = await api('/api/review-summary', {comparison_id: comparison.comparison_id, api_key: apiKey});
+    reviewSummary.textContent = result.summary
+      ? `최근 후기 ${result.review_count}개 기준 AI 요약\n${result.summary}`
+      : '요약할 구매 후기가 없어요.';
+  } catch (error) {
+    reviewSummary.textContent = '후기 요약에 실패했어요. ' + error.message;
+    reviewSummaryButton.textContent = '후기 요약 다시 받기';
+    reviewSummaryButton.hidden = false;
+  }
+}
 async function requestRecommendation() {
-  if (!keyInput.value.trim()) { showError('Gemini API 키를 입력해 주세요. 키 없이 치수 비교만 할 수도 있어요.'); keyInput.focus(); return; }
-  const apiKey = keyInput.value.trim();
-  keyInput.value = '';
+  const apiKey = getKey();
+  if (!apiKey) { showError('상단에 Gemini API 키를 입력하고 저장해 주세요. 키 없이 치수 비교만 할 수도 있어요.'); topKey()?.focus(); return; }
   statusBox.textContent = 'AI가 치수와 원하는 핏을 비교하고 있어요. 잠시 기다려 주세요.';
   tag.textContent = 'AI 추천 중'; retry.hidden = true;
-  showRecommendation('내 옷과 가장 가까운 사이즈를 찾고 있어요.', '아래 비교표는 이미 수집한 실제 치수입니다.');
+  showRecommendation('내 옷과 가장 가까운 사이즈를 찾고 있어요.', '위 비교표는 이미 수집한 실제 치수입니다.');
   try {
     const result = await api('/api/recommend', {comparison_id: comparison.comparison_id, api_key: apiKey});
     if (result.ok) {
@@ -99,6 +132,7 @@ async function requestRecommendation() {
     showRecommendation('치수 비교는 완료했어요.', 'AI 추천에 연결하지 못했어요. 비교 결과는 그대로 남아 있습니다.');
     showError(error.message); tag.textContent = 'AI 추천 실패'; statusBox.textContent = '';
   } finally { retry.hidden = false; }
+  await requestReviewSummary();
 }
 async function submit(withAI) {
   if (busy || !form.reportValidity()) return;
@@ -106,13 +140,13 @@ async function submit(withAI) {
     showError(`무신사 요청 제한 대기 중입니다. ${Math.ceil((blockedUntil - Date.now()) / 1000)}초 후 다시 시도해 주세요.`);
     return;
   }
-  if (withAI && !keyInput.value.trim()) { showError('AI 추천을 받으려면 API 키를 입력해 주세요.'); keyInput.focus(); return; }
+  if (withAI && !getKey()) { showError('AI 추천을 받으려면 상단에 API 키를 입력하고 저장해 주세요.'); topKey()?.focus(); return; }
   errorBox.hidden = true;
-  const body = Object.fromEntries(new FormData(form)); delete body.api_key;
+  const body = Object.fromEntries(new FormData(form));
   body.profile_index = 0; // 기존 기본 기준(첫 번째 저장한 옷)을 내부적으로 재사용합니다.
   setBusy(true); comparison = null; retry.hidden = true;
   document.querySelector('#results').hidden = true; document.querySelector('#empty-state').hidden = false;
-  tag.textContent = '정보 수집 중'; statusBox.textContent = '새 상품의 사이즈표, 재질, 최신 후기 1개를 가져오고 있어요…';
+  tag.textContent = '정보 수집 중'; statusBox.textContent = '새 상품의 사이즈표, 재질, 최근 후기 최대 5개를 가져오고 있어요…';
   try {
     comparison = await api('/api/compare', body); renderComparison(comparison);
     if (withAI) await requestRecommendation();
@@ -123,14 +157,19 @@ async function submit(withAI) {
 }
 form.addEventListener('submit', event => { event.preventDefault(); submit(true); });
 document.querySelector('#compare-button').addEventListener('click', () => submit(false));
+reviewSummaryButton.addEventListener('click', async () => {
+  if (busy || !comparison) return;
+  setBusy(true);
+  try { await requestReviewSummary(); } finally { setBusy(false); }
+});
 retry.addEventListener('click', async () => {
   if (busy || !comparison) return;
-  if (!keyInput.value.trim()) { showError('API 키를 입력한 뒤 다시 눌러 주세요.'); keyInput.focus(); return; }
+  if (!getKey()) { showError('상단에 API 키를 입력하고 저장한 뒤 다시 눌러 주세요.'); topKey()?.focus(); return; }
   errorBox.hidden = true; setBusy(true);
   try { await requestRecommendation(); } finally { setBusy(false); }
 });
 form.addEventListener('input', event => {
-  if (event.target === keyInput || !comparison) return;
+  if (!comparison) return;
   comparison = null; retry.hidden = true;
   document.querySelector('#results').hidden = true; document.querySelector('#empty-state').hidden = false;
   tag.textContent = '다시 비교 필요'; statusBox.textContent = '입력이 바뀌었어요. 다시 비교해 주세요.';

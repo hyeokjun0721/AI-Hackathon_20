@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="page-token" content="__CSRF_TOKEN__">
   <title>핏노트 — 내 옷으로 찾는 사이즈</title>
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><script src="/apikey.js" defer></script><script src="/app.js" defer></script>
 </head>
 <body>
   <header class="top"><a class="brand" href="/">핏노트<span class="brand-dot"></span></a><span class="tag">나에게 맞는 옷의 기준</span><a class="nav-3d" href="/tryon">3D 미리보기</a></header>
@@ -17,10 +17,6 @@
           <fieldset><legend><span class="number">01</span>새로 구매할 옷</legend>
             <label for="target-url">상품 URL</label><input id="target-url" name="target_url" type="url" placeholder="https://www.musinsa.com/products/..." required maxlength="2048">
             <label for="desired-fit">원하는 핏</label><input id="desired-fit" name="desired_fit" value="기준 옷과 비슷한 핏" placeholder="예: 조금 더 여유로운 핏" required maxlength="160">
-          </fieldset>
-          <fieldset class="api-field"><legend><span class="number">02</span>AI 추천 <span class="optional">선택</span></legend>
-            <label for="api-key">Gemini API 키</label><input id="api-key" name="api_key" type="password" placeholder="AI 추천을 받을 때만 입력" autocomplete="off" maxlength="1024" spellcheck="false">
-            <p class="hint">입력한 키는 파일이나 브라우저 저장소에 저장하지 않아요.</p>
           </fieldset>
           <div class="actions"><button class="primary" type="submit" id="recommend-button">내 사이즈 추천받기 <span aria-hidden="true">↗</span></button><button class="secondary" type="button" id="compare-button">키 없이 치수만 비교</button></div>
           <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -38,6 +34,12 @@
           <div id="recommendation" class="recommendation" aria-live="polite"></div>
           <button type="button" class="secondary retry" id="retry-button" hidden>현재 비교로 AI 추천 다시 받기</button>
           <p class="disclaimer">같은 치수라도 소재와 디자인에 따라 착용감이 달라질 수 있어요. 구매 전 상품의 측정 안내도 확인해 주세요.</p>
+          <section id="reviews" class="reviews-section" aria-labelledby="reviews-title">
+            <h3 id="reviews-title">최근 구매 후기</h3>
+            <p id="review-summary" aria-live="polite"></p>
+            <button type="button" class="secondary" id="review-summary-button" hidden>AI 후기 요약받기</button>
+            <details id="review-details" hidden><summary id="review-count">후기 원문 보기</summary><div id="review-list"></div></details>
+          </section>
         </div>
       </section>
     </div>

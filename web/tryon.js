@@ -61,26 +61,39 @@ renderer.shadowMap.enabled = true;
 view.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xeef1ea);
-scene.fog = new THREE.Fog(0xeef1ea, 14, 32);
+scene.background = new THREE.Color(0xf4f4f4);
+scene.fog = new THREE.Fog(0xf4f4f4, 14, 32);
 
 const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
 camera.position.set(0, 2.45, 5.6);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2.05, 0);
 controls.enableDamping = true;
-controls.minDistance = 1.6;
-controls.maxDistance = 12;
-// 휠 확대를 연속적으로: 휠은 '목표 거리'만 바꾸고, 매 프레임 목표까지 부드럽게 다가갑니다.
-let zoomGoal = null;
-view.addEventListener('wheel', (e) => {
-  e.preventDefault(); e.stopPropagation();
-  const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
-  const base = zoomGoal ?? camera.position.distanceTo(controls.target);
-  zoomGoal = Math.min(controls.maxDistance, Math.max(controls.minDistance, base * Math.exp(e.deltaY * unit * 0.0012)));
-}, { passive: false, capture: true });
 controls.autoRotateSpeed = 2.0;
+// 기본 휠 줌은 devicePixelRatio | 0 으로 나눠서(배율 <100%면 0) 카메라가 날아가므로 끄고 직접 처리합니다.
+controls.enableZoom = false;
+controls.minDistance = 1.6;
+controls.maxDistance = 11;
 controls.update();
+
+// 부드러운 휠 줌: 휠은 '목표 거리'만 바꾸고, 매 프레임 현재 거리를 목표로 보간합니다.
+let zoomGoal = camera.position.distanceTo(controls.target);
+renderer.domElement.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY; // 줄/페이지 단위 보정
+  const d = Math.max(-120, Math.min(120, px));                   // 한 번에 너무 큰 입력 제한
+  zoomGoal = Math.min(controls.maxDistance, Math.max(controls.minDistance, zoomGoal * Math.exp(d * 0.0012)));
+}, { passive: false });
+const _off = new THREE.Vector3();
+function smoothZoom(dt) {
+  _off.copy(camera.position).sub(controls.target);
+  const cur = _off.length();
+  if (cur < 1e-6) return;
+  const goal = Math.min(controls.maxDistance, Math.max(controls.minDistance, zoomGoal));
+  if (Math.abs(goal - cur) < 1e-4) return;
+  const next = cur + (goal - cur) * (1 - Math.exp(-dt * 12));    // 프레임레이트와 무관한 이징
+  camera.position.copy(controls.target).addScaledVector(_off, next / cur);
+}
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f84, 1.0));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -93,7 +106,7 @@ const rim = new THREE.DirectionalLight(0xdfe8ff, 0.5);
 rim.position.set(-5, 4, -4);
 scene.add(rim);
 
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0xdfe4da, roughness: 0.95 }));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0xefefef, roughness: 0.95 }));
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
@@ -566,21 +579,6 @@ const settle = (n) => {
   }
 };
 
-// ───────────────────────── 옷감 프리셋 ─────────────────────────
-const FABRIC = {
-  cotton: { label: '면', iter: 12, sub: 3, damp: 0.985, stretch: 0.78, bend: 0.10, gmul: 1 },
-  knit:   { label: '니트', iter: 10, sub: 3, damp: 0.982, stretch: 0.62, bend: 0.045, gmul: 1 },
-  denim:  { label: '데님', iter: 14, sub: 3, damp: 0.988, stretch: 0.92, bend: 0.32, gmul: 1.15 },
-  silk:   { label: '실크', iter: 10, sub: 3, damp: 0.992, stretch: 0.72, bend: 0.018, gmul: 0.78 },
-};
-function applyFabric(name) {
-  const f = FABRIC[name]; if (!f) return;
-  ITER = f.iter; SUBSTEPS = f.sub; DAMPING = f.damp; STRETCH = f.stretch; BEND = f.bend; GMUL = f.gmul;
-  $('#fabric').value = name;
-}
-$('#fabric').addEventListener('change', (e) => applyFabric(e.target.value));
-applyFabric('cotton');
-
 // ───────────────────────── 슬라이더: 마네킹 체형 / 옷 사이즈 ─────────────────────────
 const BODY_KEYS = ['shoulder', 'chest', 'waist', 'hip'];
 const TEE_KEYS = ['shoulder', 'chest', 'length', 'sleeve'];
@@ -696,11 +694,13 @@ $('#reset').addEventListener('click', () => { dress(false); dragging = -1; contr
 $('#spin').addEventListener('change', (e) => { controls.autoRotate = e.target.checked; });
 const VIEWS = { front: [0, 2.45, 5.6], back: [0, 2.45, -5.6], side: [5.6, 2.45, 0] };
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
-  zoomGoal = null; camera.position.set(...VIEWS[b.dataset.view]); controls.update();
+  camera.position.set(...VIEWS[b.dataset.view]); zoomGoal = camera.position.distanceTo(controls.target); controls.update();
 }));
 
 // ───────────────────────── 사진 → 텍스처 ─────────────────────────
 const MAX_SIDE = 1024;
+const BACKGROUND_TOLERANCE = 30;
+const SHADING_STRENGTH = 0.6;
 let srcData = null;       // 업로드한 사진의 RGBA (최대 1024px)
 let cached = null;        // 누끼 결과
 let texture = null;
@@ -721,37 +721,26 @@ async function loadFile(file) {
     ctx.drawImage(bmp, 0, 0, w, h);
     bmp.close?.();
     srcData = ctx.getImageData(0, 0, w, h);
-    srcCanvas = c;
     setError('');
     runExtract();
-    $('#ai-run').disabled = false;
   } catch {
     setError('사진을 읽지 못했어요. 다른 파일로 다시 시도해 주세요.');
   }
 }
-let srcCanvas = null;
 
 function runExtract() {
   if (!srcData) return;
-  const t0 = performance.now();
-  const res = extractTee(srcData.data, srcData.width, srcData.height, { tol: +$('#tol').value });
+  const res = extractTee(srcData.data, srcData.width, srcData.height, { tol: BACKGROUND_TOLERANCE });
   if (!res.ok) { cached = null; uni.uHas.value = 0; uni.uHasSl.value = 0; return setError(res.reason); }
   cached = res;
   setError(res.warnings.join('\n'));
   renderShading();
-  const [r, g, b] = res.base;
-  $('#swatch').style.background = `rgb(${r},${g},${b})`;
-  setStatus(`누끼 완료 (${Math.round(performance.now() - t0)}ms) · 기본색 rgb(${r}, ${g}, ${b})`
-    + (res.info.sleeveRatio < 1.12 ? ' · 소매가 거의 안 보여요(민소매/접은 사진?)' : ''));
+  setStatus('사진을 3D 미리보기에 적용했어요.');
 }
 
 function renderShading() {
   if (!cached) return;
-  const out = flattenShading(cached.rgba, cached.w, cached.h, cached.base, +$('#flat').value / 100);
-  const pv = $('#cutout');
-  pv.width = cached.w; pv.height = cached.h;
-  pv.getContext('2d').putImageData(new ImageData(out, cached.w, cached.h), 0, 0);
-
+  const out = flattenShading(cached.rgba, cached.w, cached.h, cached.base, SHADING_STRENGTH);
   // 어깨·목은 사진 윗가장자리보다 위까지 올라가므로, 윗단 색을 위로 이어 붙인 텍스처를 씁니다.
   const P = Math.round(cached.h * 0.18), ext = extendTop(out, cached.w, cached.h, P);
   if (texture) texture.dispose();
@@ -783,7 +772,7 @@ function setSleeves() {
     return;
   }
   const SW = 256, SH = 256;
-  const data = buildSleeveTexture(cached.rgba, cached.w, cached.h, sl, +$('#flat').value / 100, SW, SH);
+  const data = buildSleeveTexture(cached.rgba, cached.w, cached.h, sl, SHADING_STRENGTH, SW, SH);
   if (slTexture) slTexture.dispose();
   slTexture = new THREE.DataTexture(new Uint8Array(data.buffer), 2 * SW, SH, THREE.RGBAFormat);
   slTexture.colorSpace = THREE.SRGBColorSpace;
@@ -802,10 +791,6 @@ function applyAdjust() {
   uni.uAdj.value.set(s, -(+$('#adj-x').value) / 100, -(+$('#adj-y').value) / 100);
 }
 
-let tolTimer = 0;
-$('#tol').addEventListener('input', () => { clearTimeout(tolTimer); tolTimer = setTimeout(runExtract, 120); });
-let flatTimer = 0;
-$('#flat').addEventListener('input', () => { clearTimeout(flatTimer); flatTimer = setTimeout(renderShading, 60); });
 ['#adj-scale', '#adj-x', '#adj-y'].forEach((id) => $(id).addEventListener('input', applyAdjust));
 $('#adj-reset').addEventListener('click', () => {
   $('#adj-scale').value = 100; $('#adj-x').value = 0; $('#adj-y').value = 0; applyAdjust();
@@ -817,41 +802,6 @@ const drop = $('#drop');
 ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => loadFile(e.dataTransfer.files[0]));
 
-// ───────────────────────── AI 분석 (서버 경유 Gemini) ─────────────────────────
-$('#ai-run').addEventListener('click', async () => {
-  if (!srcCanvas) return;
-  const key = $('#api-key').value.trim();
-  const box = $('#ai-result');
-  if (!key) { box.textContent = 'Gemini API 키를 입력해 주세요.'; return; }
-  const k = Math.min(1, 384 / Math.max(srcCanvas.width, srcCanvas.height));
-  const c = document.createElement('canvas');
-  c.width = Math.round(srcCanvas.width * k); c.height = Math.round(srcCanvas.height * k);
-  c.getContext('2d').drawImage(srcCanvas, 0, 0, c.width, c.height);
-  const b64 = c.toDataURL('image/jpeg', 0.8).split(',')[1];
-  $('#ai-run').disabled = true; box.textContent = '분석 중…';
-  try {
-    const resp = await fetch('/api/tee-analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Page-Token': document.querySelector('meta[name="page-token"]').content },
-      body: JSON.stringify({ api_key: key, image_base64: b64 }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '분석에 실패했어요.');
-    const notes = [];
-    if (!data.is_tshirt) notes.push('티셔츠가 아닌 것 같아요. 결과가 어색할 수 있어요.');
-    if (data.view === 'back') notes.push('뒷면 사진 같아요. 이 버전은 앞면 사진만 정확히 입힙니다.');
-    if (data.sleeve === 'long' || data.sleeve === 'sleeveless') notes.push('3D 모델은 반팔 기준이라 소매 모양은 실제와 달라요.');
-    if (!data.plain_background) notes.push('배경이 단색이 아닌 것 같아요. 누끼가 거칠 수 있어요.');
-    if (data.fabric in FABRIC) applyFabric(data.fabric);
-    box.textContent = `AI 추정 소재: ${FABRIC[data.fabric]?.label ?? '알 수 없음'} (옷감 프리셋에 반영)`
-      + (data.note ? `\n${data.note}` : '') + (notes.length ? '\n⚠ ' + notes.join('\n⚠ ') : '');
-  } catch (err) {
-    box.textContent = err.message;
-  } finally {
-    $('#ai-run').disabled = false;
-  }
-});
-
 // ───────────────────────── 상품 링크로 사진 가져오기 ─────────────────────────
 // 서버가 상품 페이지의 이미지들을 모아 Gemini로 정면 티셔츠 사진을 고르면, 첫 번째 사진을 바로 입히고 나머지는 후보로 보여 줍니다.
 function b64ToFile(b64, mime, name) {
@@ -861,10 +811,10 @@ function b64ToFile(b64, mime, name) {
 }
 $('#url-run').addEventListener('click', async () => {
   const status = $('#url-status'), alts = $('#url-alts'), btn = $('#url-run');
-  const url = $('#tee-url').value.trim(), key = $('#api-key').value.trim();
+  const url = $('#tee-url').value.trim(), key = (window.getApiKey?.() || '').trim();
   alts.hidden = true; alts.replaceChildren();
   if (!url) { status.textContent = '무신사 상품 링크를 입력해 주세요.'; return; }
-  if (!key) { status.textContent = '아래 06 AI 분석에 Gemini API 키를 먼저 입력해 주세요.'; return; }
+  if (!key) { status.textContent = '상단에 Gemini API 키를 먼저 입력하고 저장해 주세요.'; return; }
   btn.disabled = true; status.textContent = '상품 사진을 찾고 AI가 고르는 중… (10~30초)';
   try {
     const resp = await fetch('/api/tee-find-image', {
@@ -912,14 +862,7 @@ function animate() {
   for (let s = 0; s < SUBSTEPS; s++) step(fd / SUBSTEPS, tt, wind);
   posAttr.needsUpdate = true;
   geometry.computeVertexNormals();
-  if (zoomGoal !== null) {
-    const off = camera.position.clone().sub(controls.target);
-    const d = off.length();
-    const next = Math.abs(zoomGoal - d) < 0.002 ? zoomGoal : d + (zoomGoal - d) * (1 - Math.exp(-fd * 9));
-    off.setLength(next);
-    camera.position.copy(controls.target).add(off);
-    if (next === zoomGoal) zoomGoal = null;
-  }
+  smoothZoom(fd);
   controls.update();
   renderer.render(scene, camera);
 }
