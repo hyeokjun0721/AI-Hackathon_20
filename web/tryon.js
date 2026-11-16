@@ -71,6 +71,14 @@ controls.target.set(0, 2.05, 0);
 controls.enableDamping = true;
 controls.minDistance = 1.6;
 controls.maxDistance = 12;
+// 휠 확대를 연속적으로: 휠은 '목표 거리'만 바꾸고, 매 프레임 목표까지 부드럽게 다가갑니다.
+let zoomGoal = null;
+view.addEventListener('wheel', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
+  const base = zoomGoal ?? camera.position.distanceTo(controls.target);
+  zoomGoal = Math.min(controls.maxDistance, Math.max(controls.minDistance, base * Math.exp(e.deltaY * unit * 0.0012)));
+}, { passive: false, capture: true });
 controls.autoRotateSpeed = 2.0;
 controls.update();
 
@@ -688,7 +696,7 @@ $('#reset').addEventListener('click', () => { dress(false); dragging = -1; contr
 $('#spin').addEventListener('change', (e) => { controls.autoRotate = e.target.checked; });
 const VIEWS = { front: [0, 2.45, 5.6], back: [0, 2.45, -5.6], side: [5.6, 2.45, 0] };
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
-  camera.position.set(...VIEWS[b.dataset.view]); controls.update();
+  zoomGoal = null; camera.position.set(...VIEWS[b.dataset.view]); controls.update();
 }));
 
 // ───────────────────────── 사진 → 텍스처 ─────────────────────────
@@ -904,6 +912,14 @@ function animate() {
   for (let s = 0; s < SUBSTEPS; s++) step(fd / SUBSTEPS, tt, wind);
   posAttr.needsUpdate = true;
   geometry.computeVertexNormals();
+  if (zoomGoal !== null) {
+    const off = camera.position.clone().sub(controls.target);
+    const d = off.length();
+    const next = Math.abs(zoomGoal - d) < 0.002 ? zoomGoal : d + (zoomGoal - d) * (1 - Math.exp(-fd * 9));
+    off.setLength(next);
+    camera.position.copy(controls.target).add(off);
+    if (next === zoomGoal) zoomGoal = null;
+  }
   controls.update();
   renderer.render(scene, camera);
 }
